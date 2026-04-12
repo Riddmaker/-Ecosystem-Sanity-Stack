@@ -1,0 +1,11 @@
+requests
+beautifulsoup4
+trafilatura
+feedparser
+sqlalchemy>=2.0
+psycopg2-binary
+python-dotenv
+mistralai
+pydantic>=2.0
+streamlit
+plotly

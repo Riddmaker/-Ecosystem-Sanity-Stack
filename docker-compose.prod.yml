@@ -1,0 +1,27 @@
+# Production overrides for Infomaniak Cloud (VPS / IaaS)
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Before first deploy on the VM:
+#   1. Attach a block storage volume in the Infomaniak console
+#   2. Format and mount it, e.g.:
+#        mkfs.ext4 /dev/sdb
+#        mkdir -p /mnt/data/pg_data
+#        mount /dev/sdb /mnt/data
+#        echo '/dev/sdb /mnt/data ext4 defaults 0 2' >> /etc/fstab
+#   3. Set DATA_DIR=/mnt/data in your production .env
+
+services:
+
+  db:
+    ports: []              # no external exposure in prod
+    restart: always
+    volumes:
+      - ${DATA_DIR:-/mnt/data}/pg_data:/var/lib/postgresql/data
+
+  app:
+    volumes: []            # no source mount in prod — code baked into image
+    restart: always
+
+volumes:
+  pg_data: null            # disable the local named volume from base compose
