@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for psycopg2 and trafilatura
+# System deps: gcc + libpq for psycopg2, and Playwright browser dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
@@ -11,6 +11,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/ ./src/
+# Install Playwright's Chromium + its system dependencies (needed for Blick scraper)
+RUN playwright install chromium --with-deps
 
-CMD ["python", "-m", "src.main"]
+COPY src/ ./src/
+COPY run_pipeline.py .
+
+# Default: run the frontend. Override with `command:` in docker-compose for the worker.
+CMD ["streamlit", "run", "src/frontend/app.py", \
+     "--server.port=8501", \
+     "--server.headless=true", \
+     "--server.address=0.0.0.0"]

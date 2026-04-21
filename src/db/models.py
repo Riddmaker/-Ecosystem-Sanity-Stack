@@ -57,8 +57,9 @@ class ArticleModel(Base):
     # Raw scrape payload
     raw: Mapped[dict | None] = mapped_column(JSONB)
 
-    # Tier-1 pre-screening (Mistral Small, title + 500 chars)
+    # Tier-1 pre-screening (Mistral Small, title + first ~250 words)
     pre_score: Mapped[float | None] = mapped_column(Float)         # quick ragebait screen (0–10)
+    pre_score_reasoning: Mapped[str | None] = mapped_column(Text)  # 1-sentence reasoning
     pre_score_model: Mapped[str | None] = mapped_column(String(100))
     pre_score_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

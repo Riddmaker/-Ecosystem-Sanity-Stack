@@ -20,8 +20,8 @@ from src.connectors.abstract.models import Article
 from src.db.models import ArticleModel
 
 
-def _hash_content(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+def _hash_content(title: str, content: str) -> str:
+    return hashlib.sha256(f"{title}\n{content}".encode("utf-8")).hexdigest()
 
 
 class ArticleRepository:
@@ -55,7 +55,7 @@ class ArticleRepository:
           content_changed=False → identical content → skip scorer
         """
         now = datetime.now(timezone.utc)
-        new_hash = _hash_content(article.content) if article.content else None
+        new_hash = _hash_content(article.title or "", article.content or "") if (article.title or article.content) else None
         existing = self._find_existing(article)
 
         if existing is None:
@@ -138,15 +138,15 @@ class ArticleRepository:
             q = q.where(ArticleModel.url.in_(urls))
         return list(self.session.scalars(q))
 
-    def get_top_prescored_unscored(self) -> ArticleModel | None:
-        """Return the highest pre_score article that hasn't been fully scored yet."""
+    def get_top_prescored_unscored(self, n: int = 3) -> list[ArticleModel]:
+        """Return top N articles by pre_score that haven't been fully scored yet."""
         from sqlalchemy import desc
-        return self.session.scalar(
+        return list(self.session.scalars(
             select(ArticleModel)
             .where(
                 ArticleModel.pre_score.isnot(None),
                 ArticleModel.ragebait_score.is_(None),
             )
             .order_by(desc(ArticleModel.pre_score))
-            .limit(1)
-        )
+            .limit(n)
+        ))

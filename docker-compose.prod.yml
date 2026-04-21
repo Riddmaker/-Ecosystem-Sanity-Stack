@@ -19,9 +19,16 @@ services:
     volumes:
       - ${DATA_DIR:-/mnt/data}/pg_data:/var/lib/postgresql/data
 
-  app:
+  frontend:
     volumes: []            # no source mount in prod — code baked into image
     restart: always
+
+  scheduler:
+    volumes: []            # no source mount in prod
+    restart: always
+
+  worker:
+    volumes: []            # no source mount in prod
 
 volumes:
   pg_data: null            # disable the local named volume from base compose

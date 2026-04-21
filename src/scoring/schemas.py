@@ -13,29 +13,38 @@ Two scores, two questions:
                      Context for interpreting the Ragebait Index.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PreScoreResult(BaseModel):
     """
-    Tier-1 screening result — Mistral Small, title + 500 chars.
+    Tier-1 screening result — Mistral Small, title + first ~250 words.
     Single score: likelihood of manufactured emotion / clickbait.
     """
     score: float = Field(ge=0, le=10)
     reasoning: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalise_reasoning_field(cls, data: dict) -> dict:
+        """Accept 'reason' as an alias for 'reasoning' (model sometimes uses the wrong key)."""
+        if isinstance(data, dict) and "reasoning" not in data and "reason" in data:
+            data["reasoning"] = data.pop("reason")
+        return data
+
 
 class RagebaitScore(BaseModel):
     """
-    Blom & Hansen (2015) / Potthast et al. (2016) / Rony et al. (2017).
+    Blom & Hansen (2015) / Potthast et al. (2016) / Rony et al. (2017) / Brady et al. (2017).
     Measures whether emotional charge is manufactured for engagement
     or emerges authentically from the facts reported.
     Higher = more manufactured. Higher = worse.
     """
     score: float = Field(ge=0, le=10)
-    curiosity_gap: float = Field(ge=0, le=10)      # Headline withholds info honest reporting would give
-    conflict_staging: float = Field(ge=0, le=10)   # Artificial conflict between groups/people
-    emotional_inflation: float = Field(ge=0, le=10) # Emotional claims not backed by concrete facts
+    curiosity_gap: float = Field(ge=0, le=10)           # Headline withholds info honest reporting would give
+    conflict_staging: float = Field(ge=0, le=10)        # Artificial conflict between groups/people
+    emotional_inflation: float = Field(ge=0, le=10)     # Emotional claims not backed by concrete facts
+    narrative_exploitation: float = Field(ge=0, le=10)  # Real story packaged as outrage-trigger (villain/victim/injustice)
     reasoning: str
 
 

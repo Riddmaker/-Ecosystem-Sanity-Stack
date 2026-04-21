@@ -1,9 +1,9 @@
 """
 PreScorer — Tier-1 screening with Mistral Small.
 
-Fast and cheap: title + first 500 chars → single pre_score (0–10).
+Fast and cheap: title + first 750 words → single pre_score (0–10).
 Runs on ALL newly scraped articles.
-The article with the highest pre_score then gets the full Tier-2 analysis.
+Top-scoring articles then get the full Tier-2 analysis.
 """
 
 import json
@@ -18,9 +18,9 @@ from src.scoring.schemas import PreScoreResult
 from src.scoring.pre_prompts import PRE_SCREEN_SYSTEM, PRE_SCREEN_USER
 
 PRE_SCORE_MODEL_ID       = "mistral-small-latest"
-PRE_SCORE_VERSION        = "v4-pre"
+PRE_SCORE_VERSION        = "v5-pre"
 PRE_SCORE_THRESHOLD      = 5.0   # pre_score >= this → "flagged"
-MAX_SNIPPET_CHARS        = 500
+MAX_SNIPPET_WORDS        = 250   # title + lead + ~2 paragraphs; structural signals peak here
 MAX_REQUESTS_PER_SECOND  = 5
 MIN_INTERVAL             = 1.0 / MAX_REQUESTS_PER_SECOND
 
@@ -43,7 +43,8 @@ class PreScorer:
         self._last_request_time: float = 0.0
 
     def score(self, title: str, content: str) -> PreScoreResult:
-        snippet = (content or "")[:MAX_SNIPPET_CHARS]
+        words = (content or "").split()
+        snippet = " ".join(words[:MAX_SNIPPET_WORDS])
         user_msg = PRE_SCREEN_USER.format(title=title or "", snippet=snippet)
         self._throttle()
         response = self.client.chat.complete(
@@ -69,7 +70,8 @@ class PreScorer:
 
 def pre_score_to_db_fields(result: PreScoreResult) -> dict:
     return {
-        "pre_score":       result.score,
-        "pre_score_model": PRE_SCORE_MODEL_ID,
-        "pre_score_at":    datetime.now(timezone.utc),
+        "pre_score":           result.score,
+        "pre_score_reasoning": result.reasoning,
+        "pre_score_model":     PRE_SCORE_MODEL_ID,
+        "pre_score_at":        datetime.now(timezone.utc),
     }

@@ -30,7 +30,7 @@ from src.scoring.prompts import (
 )
 
 SCORE_MODEL_ID   = "mistral-large-latest"
-SCORE_VERSION    = "v4"
+SCORE_VERSION    = "v5"
 RANDOM_SEED      = 42
 TEMPERATURE      = 0.0
 MAX_REQUESTS_PER_SECOND = 5
@@ -128,11 +128,12 @@ def result_to_db_fields(result: ScoreResult) -> dict:
             "ragebait_score":    result.ragebait_score,
             "emotional_weight_score": result.emotional_weight,
             "ragebait": {
-                "score":               rb.score,
-                "curiosity_gap":       rb.curiosity_gap,
-                "conflict_staging":    rb.conflict_staging,
-                "emotional_inflation": rb.emotional_inflation,
-                "reasoning":           rb.reasoning,
+                "score":                   rb.score,
+                "curiosity_gap":           rb.curiosity_gap,
+                "conflict_staging":        rb.conflict_staging,
+                "emotional_inflation":     rb.emotional_inflation,
+                "narrative_exploitation":  rb.narrative_exploitation,
+                "reasoning":               rb.reasoning,
             },
             "emotional_weight": {
                 "score":              ew.score,

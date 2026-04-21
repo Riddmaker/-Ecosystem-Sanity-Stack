@@ -1,14 +1,17 @@
 """
-20 Minuten Switzerland — Scraper connector.
+Watson.ch — Scraper connector.
 
-Extracts articles directly from www.20min.ch.
+Extracts articles directly from www.watson.ch via plain HTTP requests
+(no bot protection — same strategy as the 20min connector).
 
 Strategy:
-  - Index pages: extract /story/ links via href pattern — no CSS class dependency
-  - Content:     articleBody field from JSON-LD NewsArticle schema (stable, publisher-provided)
-  - Metadata:    headline, description, datePublished, author from same JSON-LD block
-  - Category:    BreadcrumbList JSON-LD block, parsed in the same pass
+  - Index pages: extract article links via numeric-ID URL pattern
+  - Content:     articleBody field from JSON-LD NewsArticle schema
+  - Metadata:    headline, description, datePublished, author from same block
+  - Category:    BreadcrumbList JSON-LD block
   - Fallback:    trafilatura if articleBody is missing
+
+URL pattern:  /section/subsection/NUMERIC_ID-slug  (no .html extension)
 
 Dependencies:
     pip install requests beautifulsoup4 trafilatura
@@ -28,15 +31,15 @@ from src.connectors.abstract.models import Article
 from src.connectors.abstract.scraper_connector import BaseScraperConnector
 
 
-BASE_URL = "https://www.20min.ch"
+BASE_URL = "https://www.watson.ch"
 
 DEFAULT_SECTIONS = [
-    "/",
-    "/news",
-    "/sport",
-    "/wirtschaft",
-    "/leben",
-    "/digital",
+    "/schweiz/",
+    "/international/",
+    "/wirtschaft/",
+    "/sport/",
+    "/wissen/",
+    "/digital/",
 ]
 
 HEADERS = {
@@ -51,23 +54,30 @@ HEADERS = {
 
 CRAWL_DELAY = 1.0
 
+# Article URLs: last path segment starts with a numeric ID followed by a dash
+ARTICLE_URL_RE = re.compile(r"/\d{6,}-[a-z]")
 
-class TwentyMinutesScraperConnector(BaseScraperConnector):
+
+class WatsonScraperConnector(BaseScraperConnector):
     """
-    Scrapes articles from www.20min.ch.
+    Scrapes articles from www.watson.ch.
 
     Usage:
-        connector = TwentyMinutesScraperConnector()
+        connector = WatsonScraperConnector()
         articles = connector.get_articles()
 
-        connector = TwentyMinutesScraperConnector(sections=["/news", "/wirtschaft"])
-        articles = connector.get_articles(max_articles=10)
+        connector = WatsonScraperConnector(sections=["/schweiz/", "/international/"])
+        articles = connector.get_articles(max_articles=20)
     """
 
-    SOURCE = "20min.ch"
+    SOURCE = "watson.ch"
     LANGUAGE = "de"
 
-    def __init__(self, sections: Optional[list[str]] = None, crawl_delay: float = CRAWL_DELAY):
+    def __init__(
+        self,
+        sections: Optional[list[str]] = None,
+        crawl_delay: float = CRAWL_DELAY,
+    ):
         self._sections = sections or DEFAULT_SECTIONS
         self._crawl_delay = crawl_delay
         self._session = requests.Session()
@@ -75,10 +85,9 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
 
     @property
     def index_urls(self) -> list[str]:
-        return [urljoin(BASE_URL, section) for section in self._sections]
+        return [BASE_URL + s for s in self._sections]
 
     def fetch_html(self, url: str, headers: Optional[dict] = None) -> str:
-        """Use the configured session (with browser headers) instead of plain requests.get."""
         response = self._session.get(url, headers=headers or {}, timeout=15)
         response.raise_for_status()
         return response.text
@@ -87,17 +96,21 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
     # Index page
     # ------------------------------------------------------------------
 
-    def extract_article_links(self, html: str, index_url: str) -> list[str]:
-        """Extract unique /story/ URLs from a listing page."""
+    def extract_article_links(self, html: str, index_url: str = "") -> list[str]:
+        """Extract unique article URLs from a listing page."""
         soup = BeautifulSoup(html, "html.parser")
-        seen = set()
-        links = []
-        for tag in soup.find_all("a", href=re.compile(r"^/story/")):
+        seen: set[str] = set()
+        links: list[str] = []
+        for tag in soup.find_all("a", href=ARTICLE_URL_RE):
             href = tag["href"].split("?")[0]
-            full_url = urljoin(BASE_URL, href)
-            if full_url not in seen:
-                seen.add(full_url)
-                links.append(full_url)
+            if not href.startswith("http"):
+                href = urljoin(BASE_URL, href)
+            # Only watson.ch URLs, no external links
+            if not href.startswith(BASE_URL):
+                continue
+            if href not in seen:
+                seen.add(href)
+                links.append(href)
         return links
 
     # ------------------------------------------------------------------
@@ -105,24 +118,25 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
     # ------------------------------------------------------------------
 
     def parse_article(self, html: str, url: str) -> Article:
-        news_article, breadcrumb = self._parse_json_ld(html)
+        soup = BeautifulSoup(html, "html.parser")
+        news_article, breadcrumb_items = self._parse_json_ld(soup)
 
         content = self._strip_html(news_article.get("articleBody", ""))
         if not content:
             content = self._trafilatura_fallback(html, url)
 
-        alternative_headline = news_article.get("alternativeHeadline", "").strip()
-        if alternative_headline:
-            content = f"[Unterzeile: {alternative_headline}]\n\n{content}"
+        description = (news_article.get("description") or "").strip()
+        if description and content:
+            content = f"[Lead: {description}]\n\n{content}"
 
-        category, tags = self._parse_breadcrumb(breadcrumb)
+        category, tags = self._parse_breadcrumb(breadcrumb_items)
 
         return Article(
-            title=news_article.get("headline", ""),
+            title=(news_article.get("headline") or "").strip(),
             url=url,
             source_article_id=self._extract_article_id(url),
             content=content,
-            summary=news_article.get("description"),
+            summary=description or None,
             published_at=self._parse_datetime(news_article.get("datePublished")),
             source=self.SOURCE,
             language=self.LANGUAGE,
@@ -130,19 +144,15 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
             category=category,
             tags=tags,
             word_count=len(content.split()) if content else None,
-            article_type=self._detect_article_type(news_article),
+            article_type="standard",
             connector_type="scraper",
             raw=news_article,
         )
 
-    def _parse_json_ld(self, html: str) -> tuple[dict, list]:
-        """
-        Parse all JSON-LD blocks in one pass.
-        Returns (NewsArticle dict, BreadcrumbList itemListElement).
-        """
-        soup = BeautifulSoup(html, "html.parser")
-        news_article = {}
-        breadcrumb_items = []
+    def _parse_json_ld(self, soup: BeautifulSoup) -> tuple[dict, list]:
+        """Parse NewsArticle and BreadcrumbList JSON-LD blocks in one pass."""
+        news_article: dict = {}
+        breadcrumb_items: list = []
 
         for script in soup.find_all("script", type="application/ld+json"):
             try:
@@ -150,10 +160,6 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
             except (json.JSONDecodeError, AttributeError):
                 continue
 
-            # Normalize to a flat list of blocks — handles three shapes:
-            # 1. { "@type": "NewsArticle", ... }          → direct object
-            # 2. [ { "@type": "..." }, ... ]              → top-level list
-            # 3. { "@graph": [ { "@type": "..." }, ... ] } → @graph wrapper
             if isinstance(data, list):
                 blocks = data
             elif "@graph" in data:
@@ -163,27 +169,28 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
 
             for block in blocks:
                 t = block.get("@type")
-                if t == "NewsArticle" and not news_article:
+                if t in ("NewsArticle", "Article") and not news_article:
                     news_article = block
                 elif t == "BreadcrumbList" and not breadcrumb_items:
                     breadcrumb_items = block.get("itemListElement", [])
 
             if news_article and breadcrumb_items:
-                break  # got everything we need
+                break
 
         return news_article, breadcrumb_items
 
     @staticmethod
     def _parse_breadcrumb(items: list) -> tuple[Optional[str], list[str]]:
         """
-        Extract category and tags from BreadcrumbList items.
-        Structure: News > Category > Subcategory > Article title (last item skipped)
+        Extract category and tags from BreadcrumbList.
+        Watson structure: Section > Subsection/Tag > Article title
+        Skip the last item (article title).
         """
-        crumbs = []
-        for item in items[:-1]:  # skip last (= article title)
-            name = item.get("item", {}).get("name") or item.get("name", "")
-            if name and name.lower() != "news":
-                crumbs.append(name)
+        crumbs = [
+            item.get("name", "").strip()
+            for item in items[:-1]
+            if item.get("name", "").strip()
+        ]
         return (crumbs[0] if crumbs else None), crumbs[1:]
 
     @staticmethod
@@ -207,32 +214,18 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
             return datetime.now(tz=timezone.utc)
 
     @staticmethod
-    def _extract_article_id(url: str) -> str | None:
-        """Extract the numeric article ID from the end of a 20min /story/ URL."""
-        match = re.search(r"-(\d{6,12})$", url.rstrip("/").split("?")[0])
+    def _extract_article_id(url: str) -> Optional[str]:
+        """Extract numeric article ID from watson URL (first segment of last path part)."""
+        match = re.search(r"/(\d{6,})-", url)
         return match.group(1) if match else None
 
     @staticmethod
-    def _detect_article_type(news_article: dict) -> str:
-        """Guess article type from JSON-LD fields."""
-        # Liveblogs have a very old datePublished but recent dateModified
-        if news_article.get("liveBlogUpdate") or news_article.get("@type") == "LiveBlogPosting":
-            return "liveblog"
-        # Heuristic: if alternativeHeadline looks like a live-ticker label
-        alt = (news_article.get("alternativeHeadline") or "").lower()
-        if any(w in alt for w in ("liveblog", "live-ticker", "liveticker", "live blog")):
-            return "liveblog"
-        return "standard"
-
-    @staticmethod
     def _strip_html(text: str) -> str:
-        """Remove any HTML tags from articleBody and normalize whitespace."""
         clean = BeautifulSoup(text, "html.parser").get_text(separator=" ")
         return " ".join(clean.split())
 
     @staticmethod
     def _trafilatura_fallback(html: str, url: str) -> str:
-        """Last resort: extract body text via trafilatura."""
         import trafilatura
         text = trafilatura.extract(
             html, url=url,
@@ -258,14 +251,11 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
 
         Args:
             max_articles:        Hard cap on total articles returned.
-            since:               If set, skip articles older than this datetime.
-                                 Stops fetching a section after max_consecutive_old
-                                 consecutive articles fall below the cutoff — index
-                                 pages are newest-first so this terminates early.
-            max_consecutive_old: How many consecutive old articles to tolerate
-                                 before aborting the current section (default 3).
+            since:               Skip articles older than this datetime.
+            max_consecutive_old: Stop a section after this many consecutive
+                                 old articles (index pages are newest-first).
         """
-        articles = []
+        articles: list[Article] = []
         seen_urls: set[str] = set()
 
         for index_url in self.index_urls:
@@ -274,11 +264,11 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
             try:
                 html = self.fetch_html(index_url)
             except Exception as e:
-                print(f"[20min] Failed to fetch index {index_url}: {e}")
+                print(f"[watson] Failed to fetch index {index_url}: {e}")
                 continue
 
             links = self.extract_article_links(html, index_url)
-            print(f"[20min] {len(links)} links found on {index_url}")
+            print(f"[watson] {len(links)} links found on {index_url}")
 
             consecutive_old = 0
 
@@ -295,7 +285,7 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
                     article = self.parse_article(article_html, url)
 
                     if not article.title or not article.content:
-                        print(f"[20min] SKIP (no title/content): {url}")
+                        print(f"[watson] SKIP (no title/content): {url}")
                         continue
 
                     if since is not None:
@@ -304,21 +294,28 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
                             pub = pub.replace(tzinfo=timezone.utc)
                         if pub < since:
                             consecutive_old += 1
-                            print(f"[20min] OLD ({consecutive_old}/{max_consecutive_old})"
-                                  f"  {pub.strftime('%H:%M')}  {article.title[:60]}")
+                            print(
+                                f"[watson] OLD ({consecutive_old}/{max_consecutive_old})"
+                                f"  {pub.strftime('%H:%M')}  {article.title[:60]}"
+                            )
                             if consecutive_old >= max_consecutive_old:
-                                print(f"[20min] {max_consecutive_old} consecutive old"
-                                      f" articles — stopping section.")
+                                print(
+                                    f"[watson] {max_consecutive_old} consecutive old"
+                                    f" articles — stopping section."
+                                )
                                 break
                             continue
 
                     consecutive_old = 0
                     articles.append(article)
-                    pub_str = article.published_at.strftime("%H:%M") if article.published_at else "?"
-                    print(f"[20min] OK   {pub_str}  {article.title[:60]}")
+                    pub_str = (
+                        article.published_at.strftime("%H:%M")
+                        if article.published_at else "?"
+                    )
+                    print(f"[watson] OK   {pub_str}  {article.title[:60]}")
 
                 except Exception as e:
-                    print(f"[20min] FAIL {url}: {e}")
+                    print(f"[watson] FAIL {url}: {e}")
 
-        print(f"[20min] Done — {len(articles)} articles collected.")
+        print(f"[watson] Done — {len(articles)} articles collected.")
         return articles
