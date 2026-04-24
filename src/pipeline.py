@@ -21,10 +21,14 @@ from src.connectors.specific_scraper.blick_scraper_connector import (
     BlickScraperConnector,
     DEFAULT_SECTIONS as BLICK_SECTIONS,
 )
-from src.scoring.pre_scorer import PreScorer, pre_score_to_db_fields, PRE_SCORE_THRESHOLD
+from src.connectors.specific_scraper.nau_scraper_connector import (
+    NauScraperConnector,
+    DEFAULT_SECTIONS as NAU_SECTIONS,
+)
+from src.scoring.pre_scorer import PreScorer, pre_score_to_db_fields
 from src.scoring.scorer import MediaScorer, result_to_db_fields
 
-ALL_SOURCES = ["20min", "watson", "blick"]
+ALL_SOURCES = ["20min", "watson", "blick", "nau"]
 
 
 def run(
@@ -97,6 +101,17 @@ def run(
         except Exception as e:
             print(f"      ERROR: {e}")
 
+    if "nau" in sources:
+        print("      nau.ch")
+        try:
+            fetched = NauScraperConnector(sections=NAU_SECTIONS).get_articles(
+                since=since, max_articles=max_articles
+            )
+            all_articles.extend(fetched)
+            print(f"      → {len(fetched)} articles")
+        except Exception as e:
+            print(f"      ERROR: {e}")
+
     print(f"      Total: {len(all_articles)} articles across all sources")
 
     # ── 2. Upsert ────────────────────────────────────────────────
@@ -120,7 +135,6 @@ def run(
             repo = ArticleRepository(session)
             to_prescreen = repo.get_unprescored(urls=new_or_updated_urls)
 
-            flagged_count = 0
             for article in to_prescreen:
                 try:
                     result = pre_scorer.score(
@@ -131,17 +145,12 @@ def run(
                         setattr(article, k, v)
                     session.flush()
 
-                    flag = "FLAG" if result.score >= PRE_SCORE_THRESHOLD else "    "
-                    if result.score >= PRE_SCORE_THRESHOLD:
-                        flagged_count += 1
-                    print(f"      [{flag}] {result.score:.1f}  {article.title[:60]}")
+                    print(f"      {result.score:.1f}  {article.title[:60]}")
                 except Exception as e:
-                    print(f"      [ERR ] {article.title[:60]}: {e}")
+                    print(f"      [ERR] {article.title[:60]}: {e}")
 
-        print(f"\n      {flagged_count} of {len(to_prescreen)} flagged (pre_score >= {PRE_SCORE_THRESHOLD})")
-
-    # ── 4. Full-score top 3 ──────────────────────────────────────
-    print("\n[4/4] Full-scoring top 3 candidates with Mistral Large...")
+    # ── 4. Full-score top 5 + judge ──────────────────────────────
+    print("\n[4/4] Full-scoring top 5 candidates with Mistral Large...")
 
     fully_scored = False
     with get_session() as session:
@@ -163,25 +172,57 @@ def run(
                     for k, v in fields.items():
                         setattr(candidate, k, v)
                     session.flush()
-                    discrepancy = result.ragebait_score - result.emotional_weight
-                    print(
-                        f"         ragebait={result.ragebait_score:.1f}  "
-                        f"weight={result.emotional_weight:.1f}  "
-                        f"discrepancy={discrepancy:+.1f}"
-                    )
-                    scored.append((candidate, result, discrepancy))
+                    print(f"         ragebait={result.ragebait_score:.1f}")
+                    scored.append((candidate, result))
                     fully_scored = True
                 except Exception as e:
                     print(f"         ERROR: {e}")
 
-            if scored:
-                winner = max(scored, key=lambda x: x[2])
-                print(f"\n      Dashboard highlight: \"{winner[0].title[:70]}\"")
-                print(
-                    f"      ragebait={winner[1].ragebait_score:.1f}  "
-                    f"weight={winner[1].emotional_weight:.1f}  "
-                    f"discrepancy={winner[2]:+.1f}"
-                )
+            if len(scored) > 1:
+                # ── Judge: qualitative winner selection ──────────────
+                print(f"\n      Asking judge to pick winner from {len(scored)} candidates...")
+                judge_input = [
+                    {
+                        "title":                  c.title or "",
+                        "ragebait_score":         r.ragebait_score,
+                        "curiosity_gap":          r.ragebait.curiosity_gap,
+                        "conflict_staging":       r.ragebait.conflict_staging,
+                        "emotional_inflation":    r.ragebait.emotional_inflation,
+                        "narrative_exploitation": r.ragebait.narrative_exploitation,
+                        "reasoning":              r.ragebait.reasoning,
+                    }
+                    for c, r in scored
+                ]
+                try:
+                    judge_result = scorer.judge_articles(judge_input)
+                    idx = judge_result["chosen"] - 1  # 0-indexed
+                    winner_article, winner_result = scored[idx]
+                    judge_reasoning = judge_result["reasoning"]
+                    print(f"      Judge chose Artikel {judge_result['chosen']}: \"{winner_article.title[:70]}\"")
+                    print(f"      Reasoning: {judge_reasoning}")
+
+                    # Write judge result into winner's score_details
+                    if winner_article.score_details:
+                        winner_article.score_details = {
+                            **winner_article.score_details,
+                            "judge": {
+                                "selected":  True,
+                                "reasoning": judge_reasoning,
+                            },
+                        }
+                        session.flush()
+                except Exception as e:
+                    print(f"      Judge ERROR: {e} — falling back to highest ragebait_score")
+                    idx = max(range(len(scored)), key=lambda i: scored[i][1].ragebait_score)
+                    winner_article, winner_result = scored[idx]
+
+                print(f"\n      Dashboard highlight: \"{winner_article.title[:70]}\"")
+                print(f"      ragebait={winner_result.ragebait_score:.1f}")
+
+            elif scored:
+                winner_article, winner_result = scored[0]
+                print(f"\n      Dashboard highlight (single candidate): \"{winner_article.title[:70]}\"")
+                print(f"      ragebait={winner_result.ragebait_score:.1f}")
 
     print("\n[pipeline] Done.")
     print("=" * 60)

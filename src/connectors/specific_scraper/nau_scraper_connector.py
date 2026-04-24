@@ -1,17 +1,15 @@
 """
-Watson.ch — Scraper connector.
+Nau.ch — Scraper connector.
 
-Extracts articles directly from www.watson.ch via plain HTTP requests
-(no bot protection — same strategy as the 20min connector).
+Extracts articles from www.nau.ch via plain HTTP requests.
 
 Strategy:
-  - Index pages: extract article links via numeric-ID URL pattern
-  - Content:     articleBody field from JSON-LD NewsArticle schema
-  - Metadata:    headline, description, datePublished, author from same block
-  - Category:    BreadcrumbList JSON-LD block
-  - Fallback:    trafilatura if articleBody is missing
+  - Index pages:  extract article links via numeric-ID URL pattern
+  - Metadata:     headline, description, datePublished, author from JSON-LD NewsArticle
+  - Content:      trafilatura (no articleBody in JSON-LD)
+  - Category:     BreadcrumbList JSON-LD block
 
-URL pattern:  /section/subsection/NUMERIC_ID-slug  (no .html extension)
+URL pattern:  /section/subsection/slug-NUMERIC_ID
 
 Dependencies:
     pip install requests beautifulsoup4 trafilatura
@@ -27,36 +25,39 @@ from src.connectors.abstract.models import Article
 from src.connectors.abstract.scraper_connector import BaseScraperConnector
 
 
-BASE_URL = "https://www.watson.ch"
+BASE_URL = "https://www.nau.ch"
 
 DEFAULT_SECTIONS = [
-    "/schweiz/",
-    "/international/",
-    "/wirtschaft/",
-    "/sport/",
-    "/wissen/",
-    "/digital/",
+    "/news",
+    "/news/ausland",
+    "/news/europa",
+    "/news/wirtschaft",
+    "/news/digital",
+    "/news/forschung",
+    "/politik",
+    "/sport",
+    "/people",
 ]
 
 CRAWL_DELAY = 1.0
 
-# Article URLs: last path segment starts with a numeric ID followed by a dash
-ARTICLE_URL_RE = re.compile(r"/\d{6,}-[a-z]")
+# Article URLs: path ends with a slug followed by a numeric ID (7–8 digits)
+ARTICLE_URL_RE = re.compile(r"/[a-z0-9-]+-\d{7,}$")
 
 
-class WatsonScraperConnector(BaseScraperConnector):
+class NauScraperConnector(BaseScraperConnector):
     """
-    Scrapes articles from www.watson.ch.
+    Scrapes articles from www.nau.ch.
 
     Usage:
-        connector = WatsonScraperConnector()
+        connector = NauScraperConnector()
         articles = connector.get_articles()
 
-        connector = WatsonScraperConnector(sections=["/schweiz/", "/international/"])
+        connector = NauScraperConnector(sections=["/news", "/politik"])
         articles = connector.get_articles(max_articles=20)
     """
 
-    SOURCE = "watson.ch"
+    SOURCE = "nau.ch"
     LANGUAGE = "de"
 
     def __init__(
@@ -81,8 +82,10 @@ class WatsonScraperConnector(BaseScraperConnector):
         soup = BeautifulSoup(html, "html.parser")
         seen: set[str] = set()
         links: list[str] = []
-        for tag in soup.find_all("a", href=ARTICLE_URL_RE):
-            href = tag["href"].split("?")[0]
+        for tag in soup.find_all("a", href=True):
+            href = tag["href"].split("?")[0].rstrip("/")
+            if not ARTICLE_URL_RE.search(href):
+                continue
             if not href.startswith("http"):
                 href = urljoin(BASE_URL, href)
             if not href.startswith(BASE_URL):
@@ -100,12 +103,10 @@ class WatsonScraperConnector(BaseScraperConnector):
         soup = BeautifulSoup(html, "html.parser")
         news_article, breadcrumb_items, _ = self._parse_json_ld(soup)
 
-        content = self._strip_html(news_article.get("articleBody", ""))
-        if not content:
-            content = self._trafilatura_fallback(html, url)
+        content = self._trafilatura_fallback(html, url)
 
         description = (news_article.get("description") or "").strip()
-        if description and content:
+        if description and content and not content.startswith(description[:40]):
             content = f"[Lead: {description}]\n\n{content}"
 
         category, tags = self._parse_breadcrumb(breadcrumb_items)
@@ -129,23 +130,24 @@ class WatsonScraperConnector(BaseScraperConnector):
         )
 
     # ------------------------------------------------------------------
-    # Watson-specific helpers
+    # Nau-specific helpers
     # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_article_id(url: str) -> Optional[str]:
-        """Extract numeric article ID from watson URL (first segment of last path part)."""
-        match = re.search(r"/(\d{6,})-", url)
+        """Extract numeric article ID from the end of a nau.ch URL."""
+        match = re.search(r"-(\d{7,})$", url)
         return match.group(1) if match else None
 
     @staticmethod
     def _parse_breadcrumb(items: list) -> tuple[Optional[str], list[str]]:
         """
-        Watson structure: Section > Subsection/Tag > Article title — skip last item.
+        Nau breadcrumbs don't include the article title as last item — no trailing skip.
         """
         crumbs = [
-            item.get("name", "").strip()
-            for item in items[:-1]
-            if item.get("name", "").strip()
+            item.get("item", {}).get("name", item.get("name", "")).strip()
+            for item in items
+            if item.get("item", {}).get("name") or item.get("name")
         ]
+        crumbs = [c for c in crumbs if c.lower() != "home"]
         return (crumbs[0] if crumbs else None), crumbs[1:]

@@ -65,7 +65,6 @@ class ArticleModel(Base):
 
     # Tier-2 full scoring (Mistral Large, full content)
     ragebait_score: Mapped[float | None] = mapped_column(Float)    # manufactured emotion (higher = worse)
-    emotional_weight: Mapped[float | None] = mapped_column(Float)  # processing burden (neutral)
     score_details: Mapped[dict | None] = mapped_column(JSONB)      # all sub-scores + reasoning
     score_model: Mapped[str | None] = mapped_column(String(100))
     score_version: Mapped[str | None] = mapped_column(String(20))
@@ -80,6 +79,5 @@ class ArticleModel(Base):
         Index("ix_articles_source_published", "source", "published_at"),
         Index("ix_articles_pre_score", "pre_score"),
         Index("ix_articles_ragebait_score", "ragebait_score"),
-        Index("ix_articles_emotional_weight", "emotional_weight"),
         Index("ix_articles_scraped_at", "scraped_at"),
     )

@@ -1,48 +1,55 @@
 """
-MediaScorer — runs 2 dimension queries against the Mistral API
-and returns a ScoreResult with Ragebait Index + Emotional Weight.
+MediaScorer — scores a news article on the Ragebait Index via Mistral Large.
 
-Ragebait Index  — Is this emotion manufactured or authentic?
-                  Blom & Hansen (2015), Potthast et al. (2016), Rony et al. (2017)
-                  Higher = more manufactured. 0 = fully authentic, 10 = pure engagement farming.
+Four sub-scores are computed in parallel (one API call each):
+  curiosity_gap          — Blom & Hansen (2015)
+  conflict_staging       — Rony et al. (2017)
+  emotional_inflation    — Potthast et al. (2016)
+  narrative_exploitation — Brady et al. (2017)
 
-Emotional Weight — How heavy is this content to process?
-                   Neutral descriptor. No value judgment.
-                   Context for interpreting the Ragebait Index.
+Composite score = mean of the four sub-scores.
 """
 
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
 from mistralai.client import Mistral
 
-from src.scoring.schemas import (
-    RagebaitScore,
-    EmotionalWeightScore,
-    ScoreResult,
-)
+from src.scoring.schemas import RagebaitScore, ScoreResult
+from src.scoring.throttle import large_limiter
 from src.scoring.prompts import (
-    RAGEBAIT_SYSTEM, RAGEBAIT_USER,
-    EMOTIONAL_WEIGHT_SYSTEM, EMOTIONAL_WEIGHT_USER,
+    SUB_SCORE_USER,
+    CURIOSITY_GAP_SYSTEM,
+    CONFLICT_STAGING_SYSTEM,
+    EMOTIONAL_INFLATION_SYSTEM,
+    NARRATIVE_EXPLOITATION_SYSTEM,
+    JUDGE_SYSTEM,
+    JUDGE_USER,
 )
 
-SCORE_MODEL_ID   = "mistral-large-latest"
-SCORE_VERSION    = "v5"
-RANDOM_SEED      = 42
-TEMPERATURE      = 0.0
-MAX_REQUESTS_PER_SECOND = 5
-MIN_INTERVAL     = 1.0 / MAX_REQUESTS_PER_SECOND
+SCORE_MODEL_ID    = "mistral-large-latest"
+SCORE_VERSION     = "v7"
+RANDOM_SEED       = 42
+TEMPERATURE       = 0.0
 MAX_CONTENT_CHARS = 3000
+
+_SUB_TASKS = [
+    ("curiosity_gap",          CURIOSITY_GAP_SYSTEM),
+    ("conflict_staging",       CONFLICT_STAGING_SYSTEM),
+    ("emotional_inflation",    EMOTIONAL_INFLATION_SYSTEM),
+    ("narrative_exploitation", NARRATIVE_EXPLOITATION_SYSTEM),
+]
 
 
 class MediaScorer:
     """
-    Scores a news article on 2 dimensions:
-      - Ragebait Index    (higher = more manufactured emotion)
-      - Emotional Weight  (neutral: how heavy to process)
+    Scores a news article on the Ragebait Index.
+
+    Four sub-score API calls are fired in parallel, then aggregated.
 
     Usage:
         scorer = MediaScorer()
@@ -55,92 +62,140 @@ class MediaScorer:
             raise ValueError("No API key provided. Set MISTRAL_API_KEY env variable.")
         self.client = Mistral(api_key=key)
         self.model  = model
-        self._last_request_time: float = 0.0
 
     def score(self, title: str, content: str) -> ScoreResult:
-        """Run both dimension queries and return aggregated ScoreResult."""
+        """Fire 4 parallel sub-score calls and return an aggregated ScoreResult."""
         content_trunc = content[:MAX_CONTENT_CHARS]
 
-        ragebait        = self._score_ragebait(title, content_trunc)
-        emotional_weight = self._score_emotional_weight(title, content_trunc)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_map = {
+                executor.submit(self._score_sub, system, title, content_trunc): key
+                for key, system in _SUB_TASKS
+            }
+            sub_scores: dict[str, dict] = {}
+            for future in as_completed(future_map):
+                key = future_map[future]
+                sub_scores[key] = future.result()
 
-        reasoning = " | ".join([
-            f"[ragebait] {ragebait.reasoning}",
-            f"[emotional_weight] {emotional_weight.reasoning}",
-        ])
+        cg = sub_scores["curiosity_gap"]
+        cs = sub_scores["conflict_staging"]
+        ei = sub_scores["emotional_inflation"]
+        ne = sub_scores["narrative_exploitation"]
 
-        return ScoreResult(
-            ragebait_score=ragebait.score,
-            emotional_weight=emotional_weight.score,
-            ragebait=ragebait,
-            emotional_weight_detail=emotional_weight,
+        composite = (cg["score"] + cs["score"] + ei["score"] + ne["score"]) / 4.0
+
+        # Combined reasoning kept for backward-compat display fallback
+        reasoning = (
+            f"curiosity_gap-{cg['reasoning']} "
+            f"conflict_staging-{cs['reasoning']} "
+            f"emotional_inflation-{ei['reasoning']} "
+            f"narrative_exploitation-{ne['reasoning']}"
+        )
+
+        ragebait = RagebaitScore(
+            score=composite,
+            curiosity_gap=cg["score"],
+            curiosity_gap_reasoning=cg["reasoning"],
+            conflict_staging=cs["score"],
+            conflict_staging_reasoning=cs["reasoning"],
+            emotional_inflation=ei["score"],
+            emotional_inflation_reasoning=ei["reasoning"],
+            narrative_exploitation=ne["score"],
+            narrative_exploitation_reasoning=ne["reasoning"],
             reasoning=reasoning,
         )
 
-    # ------------------------------------------------------------------
-    # Dimension queries
-    # ------------------------------------------------------------------
-
-    def _score_ragebait(self, title: str, content: str) -> RagebaitScore:
-        return RagebaitScore.model_validate(
-            self._query(RAGEBAIT_SYSTEM, RAGEBAIT_USER.format(title=title, content=content))
+        return ScoreResult(
+            ragebait_score=composite,
+            ragebait=ragebait,
+            reasoning=reasoning,
         )
 
-    def _score_emotional_weight(self, title: str, content: str) -> EmotionalWeightScore:
-        return EmotionalWeightScore.model_validate(
-            self._query(EMOTIONAL_WEIGHT_SYSTEM, EMOTIONAL_WEIGHT_USER.format(title=title, content=content))
-        )
+    def judge_articles(self, scored: list[dict]) -> dict:
+        """
+        Qualitative winner selection across already-scored candidates.
+
+        Args:
+            scored: list of dicts with keys:
+                      title, ragebait_score, curiosity_gap, conflict_staging,
+                      emotional_inflation, narrative_exploitation, reasoning
+
+        Returns:
+            {"chosen": int (1-indexed), "reasoning": str}
+        """
+        lines = []
+        for i, a in enumerate(scored, start=1):
+            lines.append(
+                f"[Artikel {i}]\n"
+                f"Titel: «{a['title']}»\n"
+                f"Ragebait-Score: {a['ragebait_score']:.1f}\n"
+                f"Curiosity Gap: {a['curiosity_gap']:.1f} | "
+                f"Conflict Staging: {a['conflict_staging']:.1f} | "
+                f"Emotional Inflation: {a['emotional_inflation']:.1f} | "
+                f"Narrative Exploitation: {a['narrative_exploitation']:.1f}\n"
+                f"Scoring-Reasoning: \"{a['reasoning']}\""
+            )
+        articles_block = "\n\n".join(lines)
+        user_msg = JUDGE_USER.format(n=len(scored), articles=articles_block)
+        raw = self._query(JUDGE_SYSTEM, user_msg)
+
+        chosen = int(raw.get("chosen", 1))
+        chosen = max(1, min(chosen, len(scored)))
+        return {"chosen": chosen, "reasoning": raw.get("reasoning", "")}
 
     # ------------------------------------------------------------------
-    # Mistral API call
+    # Internal helpers
     # ------------------------------------------------------------------
 
-    def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request_time
-        wait = MIN_INTERVAL - elapsed
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_time = time.monotonic()
+    def _score_sub(self, system: str, title: str, content: str) -> dict:
+        """Score a single sub-dimension. Returns {"score": float, "reasoning": str}."""
+        user_msg = SUB_SCORE_USER.format(title=title, content=content)
+        raw = self._query(system, user_msg)
+        score = float(raw.get("score", 0))
+        score = max(0.0, min(10.0, score))
+        return {"score": score, "reasoning": raw.get("reasoning", "")}
 
-    def _query(self, system: str, user: str) -> dict:
-        self._throttle()
-        response = self.client.chat.complete(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=TEMPERATURE,
-            random_seed=RANDOM_SEED,
-        )
-        return json.loads(response.choices[0].message.content)
+    def _query(self, system: str, user: str, _retries: int = 4) -> dict:
+        for attempt in range(_retries):
+            large_limiter.wait()
+            try:
+                response = self.client.chat.complete(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": user},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=TEMPERATURE,
+                    random_seed=RANDOM_SEED,
+                )
+                return json.loads(response.choices[0].message.content)
+            except Exception as e:
+                if "429" in str(e) and attempt < _retries - 1:
+                    backoff = 10 * (attempt + 1)  # 10s, 20s, 30s
+                    time.sleep(backoff)
+                else:
+                    raise
 
 
 def result_to_db_fields(result: ScoreResult) -> dict:
     """Convert a ScoreResult into fields for ArticleModel."""
     rb = result.ragebait
-    ew = result.emotional_weight_detail
     return {
-        "ragebait_score":  result.ragebait_score,
-        "emotional_weight": result.emotional_weight,
+        "ragebait_score": result.ragebait_score,
         "score_details": {
-            "ragebait_score":    result.ragebait_score,
-            "emotional_weight_score": result.emotional_weight,
+            "ragebait_score": result.ragebait_score,
             "ragebait": {
-                "score":                   rb.score,
-                "curiosity_gap":           rb.curiosity_gap,
-                "conflict_staging":        rb.conflict_staging,
-                "emotional_inflation":     rb.emotional_inflation,
-                "narrative_exploitation":  rb.narrative_exploitation,
-                "reasoning":               rb.reasoning,
-            },
-            "emotional_weight": {
-                "score":              ew.score,
-                "topic_gravity":      ew.topic_gravity,
-                "emotional_exposure": ew.emotional_exposure,
-                "reader_burden":      ew.reader_burden,
-                "reasoning":          ew.reasoning,
+                "score":                          rb.score,
+                "curiosity_gap":                  rb.curiosity_gap,
+                "curiosity_gap_reasoning":         rb.curiosity_gap_reasoning,
+                "conflict_staging":               rb.conflict_staging,
+                "conflict_staging_reasoning":      rb.conflict_staging_reasoning,
+                "emotional_inflation":            rb.emotional_inflation,
+                "emotional_inflation_reasoning":   rb.emotional_inflation_reasoning,
+                "narrative_exploitation":         rb.narrative_exploitation,
+                "narrative_exploitation_reasoning": rb.narrative_exploitation_reasoning,
+                "reasoning":                      rb.reasoning,
             },
             "temperature": TEMPERATURE,
             "random_seed": RANDOM_SEED,

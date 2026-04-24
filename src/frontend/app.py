@@ -40,7 +40,6 @@ LIGHT_VARS = """
   --tag-bg:           #EDF2F7;
   --tag-color:        #4A5568;
   --ragebait:         #E53E3E;
-  --weight:           #3182CE;
   --bar-track:        #EDF2F7;
 """
 
@@ -55,7 +54,6 @@ DARK_VARS = """
   --tag-bg:           #2D3748;
   --tag-color:        #CBD5E0;
   --ragebait:         #FC8181;
-  --weight:           #63B3ED;
   --bar-track:        #2D3748;
 """
 
@@ -155,7 +153,7 @@ html, body,
 
 /* ── Research footer ── */
 .research-footer {{
-    margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--border);
+    margin-top: 1.2rem; padding-top: 1.2rem; border-top: 1px solid var(--border);
     font-size: 0.7rem; color: var(--text-muted); line-height: 2.2;
 }}
 .research-footer a {{ color: var(--text-muted); text-decoration: none; }}
@@ -169,7 +167,7 @@ html, body,
 # ─────────────────────────────────────────────────────────────
 from datetime import timedelta
 from sqlalchemy import func, select
-from src.db.connection import build_engine, get_session
+from src.db.connection import get_session
 from src.db.models import ArticleModel
 
 @st.cache_data(ttl=60)
@@ -190,9 +188,10 @@ def load_articles():
                 "scraped_at":       r.scraped_at,
                 "score_computed_at": r.score_computed_at,
                 "ragebait_score":   r.ragebait_score,
-                "emotional_weight": r.emotional_weight,
                 "pre_score":        r.pre_score,
                 "details":          r.score_details or {},
+                "judge_reasoning":  (r.score_details or {}).get("judge", {}).get("reasoning"),
+                "judge_selected":   (r.score_details or {}).get("judge", {}).get("selected", False),
                 "score_model":      r.score_model or "—",
                 "score_version":    r.score_version or "—",
             }
@@ -201,17 +200,30 @@ def load_articles():
 
 def pick_highlight(articles: list[dict]) -> dict | None:
     """
-    From the latest scoring batch (articles scored within 10 min of the most
-    recent score_computed_at), return the one with the highest
-    ragebait - emotional_weight discrepancy.
+    Pick the most notable article to highlight.
+    Relies exclusively on the judge LLM call:
+    1. Judge-selected article in the latest batch (10-min window).
+    2. Fallback: most recent judge-selected article in the last 24h.
     """
     scored = [a for a in articles if a["score_computed_at"] is not None]
     if not scored:
         return None
+
     latest_ts = max(a["score_computed_at"] for a in scored)
-    window_start = latest_ts - timedelta(minutes=10)
-    batch = [a for a in scored if a["score_computed_at"] >= window_start]
-    return max(batch, key=lambda a: (a["ragebait_score"] or 0) - (a["emotional_weight"] or 0))
+    batch    = [a for a in scored if a["score_computed_at"] >= latest_ts - timedelta(minutes=10)]
+    last_24h = [a for a in scored if a["score_computed_at"] >= latest_ts - timedelta(hours=24)]
+
+    # 1. Judge pick in latest batch
+    judge_batch = [a for a in batch if a.get("judge_selected") and a.get("judge_reasoning")]
+    if judge_batch:
+        return judge_batch[0]
+
+    # 2. Judge pick from last 24h
+    judge_24h = [a for a in last_24h if a.get("judge_selected") and a.get("judge_reasoning")]
+    if judge_24h:
+        return max(judge_24h, key=lambda a: a["score_computed_at"])
+
+    return None
 
 @st.cache_data(ttl=60)
 def load_batch_stats():
@@ -220,7 +232,7 @@ def load_batch_stats():
             select(func.max(ArticleModel.scraped_at)).where(ArticleModel.pre_score.isnot(None))
         )
         if not latest_scraped:
-            return {"total": 0, "flagged": 0, "batch_time": None}
+            return {"total": 0, "batch_time": None}
         window_start = latest_scraped - timedelta(minutes=75)
         batch_articles = list(session.scalars(
             select(ArticleModel).where(
@@ -228,9 +240,8 @@ def load_batch_stats():
                 ArticleModel.scraped_at >= window_start,
             )
         ))
-        total   = len(batch_articles)
-        flagged = sum(1 for a in batch_articles if (a.pre_score or 0) >= 5.0)
-        return {"total": total, "flagged": flagged, "batch_time": latest_scraped}
+        total = len(batch_articles)
+        return {"total": total, "batch_time": latest_scraped}
 
 all_articles = load_articles()
 batch_stats  = load_batch_stats()
@@ -243,12 +254,10 @@ latest       = pick_highlight(all_articles)
 import re
 
 FIELD_LABELS = {
-    "curiosity_gap":       "Curiosity Gap",
-    "conflict_staging":    "Conflict Staging",
-    "emotional_inflation": "Emotional Inflation",
-    "topic_gravity":       "Topic Gravity",
-    "emotional_exposure":  "Emotional Exposure",
-    "reader_burden":       "Reader Burden",
+    "curiosity_gap":          "Curiosity Gap",
+    "conflict_staging":       "Conflict Staging",
+    "emotional_inflation":    "Emotional Inflation",
+    "narrative_exploitation": "Narrative Exploitation",
 }
 
 def format_reasoning(text: str) -> str:
@@ -260,10 +269,35 @@ def format_reasoning(text: str) -> str:
     text = re.sub(r'(\S)\s+(?=<strong>)', r'\1<br><br>', text)
     return text
 
-def score_bar(val, css_var):
+def ragebait_color(score: float) -> str:
+    """
+    Green → yellow → red pastel gradient for scores 0–10.
+    Anchors match the Chakra-UI 500-level palette so score 10
+    renders as the existing --ragebait red (#E53E3E).
+      1  → #38A169  (green-500)
+      5  → #D69E2E  (yellow-600)
+      10 → #E53E3E  (red-500)
+    """
+    t = max(0.0, min(10.0, float(score))) / 10.0
+    GREEN  = (0x38, 0xA1, 0x69)
+    YELLOW = (0xD6, 0x9E, 0x2E)
+    RED    = (0xE5, 0x3E, 0x3E)
+    if t <= 0.5:
+        s = t / 0.5
+        a, b_ = GREEN, YELLOW
+    else:
+        s = (t - 0.5) / 0.5
+        a, b_ = YELLOW, RED
+    r = int(a[0] + (b_[0] - a[0]) * s)
+    g = int(a[1] + (b_[1] - a[1]) * s)
+    b = int(a[2] + (b_[2] - a[2]) * s)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def score_bar(val: float, color: str) -> str:
     pct = min(100, (val / 10) * 100)
     return (f'<div class="score-bar-wrap">'
-            f'<div class="score-bar-fill" style="width:{pct:.0f}%;background:{css_var};"></div>'
+            f'<div class="score-bar-fill" style="width:{pct:.0f}%;background:{color};"></div>'
             f'</div>')
 
 
@@ -290,9 +324,9 @@ with col_title:
   <span style="display:block;margin-top:0.5rem;font-weight:600;color:var(--text-primary);">
   Dieses Instrument veranschaulicht ein Framework das sich direkt auf den eigenen Medienkonsum
   übertragen lässt — es gibt ein Bewertungsraster an die Hand, mit dem sich auch im Alltag
-  jeder Artikel selbst einordnen lässt. Das Ziel des Projektes ist es, einen bewussteren Medienkonsum zu fördern.
+  selber Artikel bewerten lassen. Das Ziel des Projektes ist es, einen bewussteren Medienkonsum zu fördern.
   </span>
-  <span style="display:block;margin-top:0.2rem;">Wissenschaftliche Grundlagen ganz unten auf der Seite.</span>
+  <span style="display:block;margin-top:0.2rem;">Wissenschaftliche Grundlagenn ganz unten auf der Seite.</span>
   </span>
   <span style="display:block;margin-top:0.6rem;color:var(--text-muted);line-height:1.7;">
   Alle Bewertungen werden automatisiert durch ein Sprachmodell erstellt — ohne menschliche
@@ -326,9 +360,6 @@ with col_toggle:
 # ─────────────────────────────────────────────────────────────
 # ARTICLE HIGHLIGHT
 # ─────────────────────────────────────────────────────────────
-# CSS var references used in inline styles so theme switching works
-RB  = "var(--ragebait)"
-EW  = "var(--weight)"
 T1  = "var(--text-primary)"
 T2  = "var(--text-secondary)"
 T3  = "var(--text-muted)"
@@ -340,34 +371,27 @@ if latest:
     ts = latest["scraped_at"].strftime("%d.%m.%Y %H:%M UTC") if latest["scraped_at"] else "—"
 
     rb_detail = d.get("ragebait", {})
-    ew_detail = d.get("emotional_weight", {})
     rb_score  = rb_detail.get("score", latest.get("ragebait_score") or 0)
-    ew_score  = ew_detail.get("score", latest.get("emotional_weight") or 0)
+    RB        = ragebait_color(rb_score)
 
     bs = batch_stats
-    discrepancy = (latest.get("ragebait_score") or 0) - (latest.get("emotional_weight") or 0)
     if bs["total"] > 0:
         batch_time_str = bs["batch_time"].strftime("%H:%M UTC") if bs["batch_time"] else "—"
         section_label = (
-            f'Höchste Ragebait-Diskrepanz im letzten Batch &nbsp;·&nbsp; '
-            f'{bs["flagged"]} von {bs["total"]} Artikeln vorläufig markiert ({batch_time_str})'
-            f' &nbsp;·&nbsp; Diskrepanz: {discrepancy:+.1f}'
+            f'Höchster Ragebait-Score im letzten Batch &nbsp;·&nbsp; '
+            f'{bs["total"]} Artikel gescreent ({batch_time_str})'
         )
     else:
-        section_label = "Höchste Ragebait-Diskrepanz"
+        section_label = "Höchster Ragebait-Score"
 
     st.markdown(f'<div class="section-label">{section_label}</div>', unsafe_allow_html=True)
 
     DIMS = [
         ("ragebait", RB, "Ragebait Index", [
-            ("curiosity_gap",       "Curiosity Gap"),
-            ("conflict_staging",    "Conflict Staging"),
-            ("emotional_inflation", "Emotional Inflation"),
-        ]),
-        ("emotional_weight", EW, "Emotionales Gewicht", [
-            ("topic_gravity",      "Topic Gravity"),
-            ("emotional_exposure", "Emotional Exposure"),
-            ("reader_burden",      "Reader Burden"),
+            ("curiosity_gap",          "Curiosity Gap"),
+            ("conflict_staging",       "Conflict Staging"),
+            ("emotional_inflation",    "Emotional Inflation"),
+            ("narrative_exploitation", "Narrative Exploitation"),
         ]),
     ]
 
@@ -401,9 +425,7 @@ if latest:
     dim_rows = ""
     for i, (dk, c, lbl, subs) in enumerate(DIMS):
         dim_data  = d.get(dk, {})
-        big_score = dim_data.get("score", latest.get(
-            "ragebait_score" if dk == "ragebait" else "emotional_weight") or 0)
-        reasoning = format_reasoning(d.get(dk, {}).get("reasoning", "—"))
+        big_score = dim_data.get("score", latest.get("ragebait_score") or 0)
 
         is_last = (i == len(DIMS) - 1)
         row_border = "" if is_last else ROW_BORDER
@@ -414,27 +436,49 @@ if latest:
             f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">{lbl}</div>'
         )
         for sk, sl in subs:
-            sv = dim_data.get(sk, 0)
+            sv  = dim_data.get(sk, 0)
+            sc  = ragebait_color(sv)
             bars_html += (
                 f'<div class="sub-row">'
                 f'<span class="sub-label">{sl}</span>'
-                f'<span class="sub-score-val" style="color:{c};">{sv:.1f}</span>'
+                f'<span class="sub-score-val" style="color:{sc};">{sv:.1f}</span>'
                 f'</div>'
-                + score_bar(sv, c)
+                + score_bar(sv, sc)
+            )
+
+        # Reasoning: per-sub-score blocks (v7) or combined fallback (v6)
+        has_per_sub = any(dim_data.get(f"{sk}_reasoning") for sk, _ in subs)
+        if has_per_sub:
+            reasoning_html = ""
+            for sk, sl in subs:
+                sv = dim_data.get(sk, 0)
+                sc = ragebait_color(sv)
+                sr = dim_data.get(f"{sk}_reasoning", "")
+                if sr:
+                    reasoning_html += (
+                        f'<div style="margin-bottom:0.75rem;">'
+                        f'<div style="font-size:0.65rem;font-weight:600;color:{sc};'
+                        f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">{sl}</div>'
+                        f'<div class="reasoning-text">{sr}</div>'
+                        f'</div>'
+                    )
+        else:
+            reasoning_html = (
+                f'<div class="reasoning-text">'
+                f'{format_reasoning(dim_data.get("reasoning", "—"))}'
+                f'</div>'
             )
 
         dim_rows += (
             f'<div style="{C1}{row_border}vertical-align:top;">'
             f'<div style="font-size:0.68rem;font-weight:600;color:{c};'
             f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">'
-            f'{"Ragebait" if dk == "ragebait" else "Gewicht"}</div>'
+            f'Ragebait</div>'
             f'<div style="font-size:3rem;font-weight:600;line-height:1;color:{c};">'
             f'{big_score:.1f}</div>'
             f'</div>'
             f'<div style="{C2}{row_border}">{bars_html}</div>'
-            f'<div style="{C3}{row_border}">'
-            f'<div class="reasoning-text">{reasoning}</div>'
-            f'</div>'
+            f'<div style="{C3}{row_border}">{reasoning_html}</div>'
         )
 
     # ── Row 4: meta footer
@@ -460,25 +504,38 @@ if latest:
         unsafe_allow_html=True,
     )
 
-    RB_S = "color:var(--ragebait);font-weight:700;"
-    EW_S = "color:var(--weight);font-weight:700;"
-    SEP  = f'<span style="color:{BD};margin:0 0.7rem;">·</span>'
+    RB_S = f"color:{RB};font-weight:700;"
+
+    # ── Judge reasoning ──
+    judge_text = latest.get("judge_reasoning")
+    if judge_text:
+        # Score context note for low scores
+        score_note = ""
+        if rb_score < 3.5:
+            score_note = "Gesamtscore tief — heute wenig Ragebait im Umlauf. Analyse entsprechend mit Vorsicht geniessen."
+        elif rb_score < 5.0:
+            score_note = "Moderater Gesamtscore — leichter Ragebait-Verdacht, aber keine klaren Ausreisser."
+
+        score_note_html = (
+            f'<div style="margin-top:0.5rem;font-size:0.68rem;color:{T3};font-style:italic;">'
+            f'{score_note}</div>'
+        ) if score_note else ""
+
+        st.markdown(
+            f'<div style="margin-top:0.9rem;padding:0.8rem 1.1rem;'
+            f'border-left:3px solid {RB};background:var(--bg-card);'
+            f'border-radius:0 6px 6px 0;">'
+            f'<div style="font-size:0.68rem;font-weight:600;color:{RB};'
+            f'text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.35rem;">'
+            f'Warum hat Mistral diesen Artikel gewählt?</div>'
+            f'<div style="font-size:0.78rem;color:{T2};line-height:1.65;">{judge_text}</div>'
+            f'{score_note_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     st.markdown(
-        # ── Legend ──
-        f'<div style="display:flex;align-items:center;flex-wrap:wrap;'
-        f'margin-top:0.6rem;font-size:0.78rem;color:{T2};gap:0;">'
-        f'<span><span style="{RB_S}">↓</span><span style="{EW_S}">↓</span>'
-        f'&nbsp;Sachlicher Artikel</span>{SEP}'
-        f'<span><span style="{RB_S}">↓</span><span style="{EW_S}">↑</span>'
-        f'&nbsp;Authentische Schwere</span>{SEP}'
-        f'<span><span style="{RB_S}">↑</span><span style="{EW_S}">↓</span>'
-        f'&nbsp;Zuspitzung ohne Substanz</span>{SEP}'
-        f'<span><span style="{RB_S}">↑</span><span style="{EW_S}">↑</span>'
-        f'&nbsp;Leid als Engagement-Aufhänger</span>'
-        f'</div>'
-        # ── Score definitions ──
-        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1.1rem;">'
-        f'<div style="font-size:0.75rem;color:{T2};line-height:1.65;">'
+        f'<div style="font-size:0.75rem;color:{T2};line-height:1.65;margin-top:0.8rem;">'
         f'<span style="{RB_S}font-size:0.72rem;text-transform:uppercase;'
         f'letter-spacing:0.05em;">Ragebait Index</span>'
         f'<span style="color:{T3};font-size:0.72rem;"> — 0 bis 10, höher = schlechter</span><br>'
@@ -487,16 +544,24 @@ if latest:
         f'die zur Erzeugung von Klicks und Empörung eingesetzt werden können. '
         f'Tiefe Werte bedeuten authentische Berichterstattung. '
         f'Hohe Werte weisen auf fabrizierte Emotion hin.'
-        f'</div>'
-        f'<div style="font-size:0.75rem;color:{T2};line-height:1.65;">'
-        f'<span style="{EW_S}font-size:0.72rem;text-transform:uppercase;'
-        f'letter-spacing:0.05em;">Emotionales Gewicht</span>'
-        f'<span style="color:{T3};font-size:0.72rem;"> — 0 bis 10, neutral</span><br>'
-        f'Misst, wie schwer ein Artikel emotional zu verarbeiten ist — unabhängig davon, '
-        f'ob das gerechtfertigt ist. Kein Qualitätsurteil. '
-        f'Hohe Werte bei niedrigem Ragebait signalisieren authentisch schwere Nachrichten. '
-        f'Hohe Werte bei hohem Ragebait deuten auf Instrumentalisierung realer Schwere hin.'
-        f'</div>'
+        f'<br><br>'
+        f'<span style="font-weight:600;color:{T2};">Curiosity Gap</span>'
+        f'<span style="color:{T3};"> — Hält die Headline absichtlich Kerninformationen zurück, '
+        f'um den Klick zu erzwingen? Hohe Werte bedeuten: die Frage wird aufgebaut, '
+        f'die Antwort aber bewusst verweigert.</span><br>'
+        f'<span style="font-weight:600;color:{T2};">Conflict Staging</span>'
+        f'<span style="color:{T3};"> — Konstruiert die Redaktion aktiv einen Gruppenkonflikt '
+        f'ohne ausreichende Faktenbasis, um Empörung und Kommentare zu ernten? '
+        f'Reale, dokumentierte Konflikte zählen nicht als Staging.</span><br>'
+        f'<span style="font-weight:600;color:{T2};">Emotional Inflation</span>'
+        f'<span style="color:{T3};"> — Wie hoch ist der Anteil emotionaler Behauptungen '
+        f'im Verhältnis zu verifizierbaren Fakten, Zahlen und Quellen? '
+        f'Hohe Werte bedeuten: Gefühl ersetzt Substanz.</span><br>'
+        f'<span style="font-weight:600;color:{T2};">Narrative Exploitation</span>'
+        f'<span style="color:{T3};"> — Wird eine Geschichte primär deshalb aufgegriffen, '
+        f'um moralische Empörung auszulösen — ohne dass der Leser handeln könnte '
+        f'oder die Geschichte für ihn relevant ist? '
+        f'Bösewicht, Opfer, Ohnmacht: das klassische Empörungs-Muster.</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -504,7 +569,7 @@ if latest:
 else:
     st.markdown(
         f'<div style="color:{T3};text-align:center;padding:2.5rem;font-size:0.85rem;">'
-        f'Noch keine analysierten Artikel — run_pipeline.py ausführen.</div>',
+        f'Kein Ragebait-Kandidat gefunden — Pipeline ausführen oder Threshold prüfen.</div>',
         unsafe_allow_html=True,
     )
 
@@ -559,7 +624,7 @@ st.markdown("""
 <div class="research-footer">
 
   <div style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;
-              letter-spacing:0.06em;margin-bottom:0.6rem;">Wissenschaftliche Grundlage</div>
+              letter-spacing:0.06em;margin-bottom:0.6rem;">Wissenschaftliche Grundlagen</div>
 
   <div style="font-size:0.67rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;
               letter-spacing:0.05em;margin-bottom:0.3rem;">Scoring-Grundlage</div>
@@ -572,6 +637,15 @@ st.markdown("""
     Grundlage für <em>Curiosity Gap</em>.
   </span><br>
 
+  <a href="https://doi.org/10.1145/3091478.3091487" target="_blank">
+    Rony, Hassan &amp; Yousuf (2017) — Diving Deep into Clickbaits
+  </a>
+  <span style="color:var(--text-muted);">
+    — Engagement Farming durch Controversy Manufacturing: Gruppen werden ohne sachliche Basis
+    gegeneinander aufgestellt um Kommentare zu ernten.
+    Grundlage für <em>Conflict Staging</em>.
+  </span><br>
+
   <a href="https://doi.org/10.1007/978-3-319-30671-1_72" target="_blank">
     Potthast et al. (2016) — Clickbait Detection
   </a>
@@ -580,17 +654,17 @@ st.markdown("""
     Grundlage für <em>Emotional Inflation</em>.
   </span><br>
 
-  <a href="https://doi.org/10.1145/3091478.3091487" target="_blank">
-    Rony, Hassan &amp; Yousuf (2017) — Diving Deep into Clickbaits
+  <a href="https://doi.org/10.1073/pnas.1618923114" target="_blank">
+    Brady et al. (2017) — Emotion shapes the diffusion of moralized content in social networks
   </a>
   <span style="color:var(--text-muted);">
-    — Engagement Farming durch Controversy Manufacturing: Gruppen werden ohne sachliche Basis
-    gegeneinander aufgestellt um Kommentare zu ernten.
-    Grundlage für <em>Conflict Staging</em>.
+    — Moralisch-emotionale Sprache erhöht die Verbreitung von Inhalten in sozialen Netzwerken messbar.
+    Geschichten werden primär deshalb aufgegriffen, um moralische Empörung auszulösen — unabhängig
+    vom Informationswert. Grundlage für <em>Narrative Exploitation</em>.
   </span>
 
   <div style="font-size:0.67rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;
-              letter-spacing:0.05em;margin:0.7rem 0 0.3rem 0;">Theoretischer Hintergrund</div>
+              letter-spacing:0.05em;margin:0.7rem 0 0.3rem 0;">Warum das wichtig ist</div>
 
   <a href="https://doi.org/10.1080/10410236.2022.2106086" target="_blank">
     McLaughlin, Gotlieb &amp; Mills (2022) — Problematic News Consumption

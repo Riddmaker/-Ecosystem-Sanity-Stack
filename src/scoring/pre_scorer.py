@@ -16,13 +16,11 @@ from mistralai.client import Mistral
 
 from src.scoring.schemas import PreScoreResult
 from src.scoring.pre_prompts import PRE_SCREEN_SYSTEM, PRE_SCREEN_USER
+from src.scoring.throttle import small_limiter
 
-PRE_SCORE_MODEL_ID       = "mistral-small-latest"
-PRE_SCORE_VERSION        = "v5-pre"
-PRE_SCORE_THRESHOLD      = 5.0   # pre_score >= this → "flagged"
-MAX_SNIPPET_WORDS        = 250   # title + lead + ~2 paragraphs; structural signals peak here
-MAX_REQUESTS_PER_SECOND  = 5
-MIN_INTERVAL             = 1.0 / MAX_REQUESTS_PER_SECOND
+PRE_SCORE_MODEL_ID = "mistral-small-latest"
+PRE_SCORE_VERSION  = "v5-pre"
+MAX_SNIPPET_WORDS  = 250   # title + lead + ~2 paragraphs; structural signals peak here
 
 
 class PreScorer:
@@ -40,33 +38,32 @@ class PreScorer:
         if not key:
             raise ValueError("No API key provided. Set MISTRAL_API_KEY env variable.")
         self.client = Mistral(api_key=key)
-        self._last_request_time: float = 0.0
 
-    def score(self, title: str, content: str) -> PreScoreResult:
+    def score(self, title: str, content: str, _retries: int = 4) -> PreScoreResult:
         words = (content or "").split()
         snippet = " ".join(words[:MAX_SNIPPET_WORDS])
         user_msg = PRE_SCREEN_USER.format(title=title or "", snippet=snippet)
-        self._throttle()
-        response = self.client.chat.complete(
-            model=PRE_SCORE_MODEL_ID,
-            messages=[
-                {"role": "system", "content": PRE_SCREEN_SYSTEM},
-                {"role": "user",   "content": user_msg},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-            random_seed=42,
-        )
-        data = json.loads(response.choices[0].message.content)
-        return PreScoreResult.model_validate(data)
-
-    def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request_time
-        wait = MIN_INTERVAL - elapsed
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_time = time.monotonic()
-
+        for attempt in range(_retries):
+            small_limiter.wait()
+            try:
+                response = self.client.chat.complete(
+                    model=PRE_SCORE_MODEL_ID,
+                    messages=[
+                        {"role": "system", "content": PRE_SCREEN_SYSTEM},
+                        {"role": "user",   "content": user_msg},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.0,
+                    random_seed=42,
+                )
+                data = json.loads(response.choices[0].message.content)
+                return PreScoreResult.model_validate(data)
+            except Exception as e:
+                if "429" in str(e) and attempt < _retries - 1:
+                    backoff = 10 * (attempt + 1)
+                    time.sleep(backoff)
+                else:
+                    raise
 
 def pre_score_to_db_fields(result: PreScoreResult) -> dict:
     return {

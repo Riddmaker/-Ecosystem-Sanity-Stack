@@ -105,7 +105,6 @@ class ArticleRepository:
             existing.pre_score_model = None
             existing.pre_score_at = None
             existing.ragebait_score = None
-            existing.emotional_weight = None
             existing.score_details = None
             existing.score_model = None
             existing.score_version = None
@@ -119,14 +118,10 @@ class ArticleRepository:
 
     def get_unscored(self) -> list[ArticleModel]:
         """Return all articles that need a (re-)score."""
-        from sqlalchemy import or_
         return list(
             self.session.scalars(
                 select(ArticleModel).where(
-                    or_(
-                        ArticleModel.ragebait_score.is_(None),
-                        ArticleModel.emotional_weight.is_(None),
-                    )
+                    ArticleModel.ragebait_score.is_(None)
                 )
             )
         )
