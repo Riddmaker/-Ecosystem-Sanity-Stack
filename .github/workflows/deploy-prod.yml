@@ -12,7 +12,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     if: github.event.inputs.confirm == 'deploy' && github.ref == 'refs/heads/main'
     permissions:
@@ -39,15 +39,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-      - name: Deploy to Jelastic Production Environment
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.JELASTIC_PROD_HOST }}
-          username: ${{ secrets.JELASTIC_PROD_USER }}
-          key: ${{ secrets.JELASTIC_SSH_KEY }}
-          script: |
-            cd /app
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
-            docker image prune -f
+      - name: Trigger Jelastic redeploy (Production)
+        run: |
+          curl -fSs "${{ secrets.JELASTIC_WEBHOOK_PROD }}"
