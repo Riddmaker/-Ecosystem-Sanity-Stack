@@ -40,7 +40,7 @@ def job():
 
 
 # Register schedule first so next_run() is populated inside job()
-schedule.every(60).minutes.do(job)
+schedule.every().hour.at(":00").do(job)
 
 log.info("Scheduler starting — running pipeline immediately, then every 60 minutes.")
 job()
