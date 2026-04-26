@@ -228,20 +228,19 @@ def pick_highlight(articles: list[dict]) -> dict | None:
 @st.cache_data(ttl=60)
 def load_batch_stats():
     with get_session() as session:
-        latest_scraped = session.scalar(
-            select(func.max(ArticleModel.scraped_at)).where(ArticleModel.pre_score.isnot(None))
+        latest_scored = session.scalar(
+            select(func.max(ArticleModel.pre_score_at))
         )
-        if not latest_scraped:
+        if not latest_scored:
             return {"total": 0, "batch_time": None}
-        window_start = latest_scraped - timedelta(minutes=75)
+        window_start = latest_scored - timedelta(minutes=75)
         batch_articles = list(session.scalars(
             select(ArticleModel).where(
-                ArticleModel.pre_score.isnot(None),
-                ArticleModel.scraped_at >= window_start,
+                ArticleModel.pre_score_at >= window_start,
             )
         ))
         total = len(batch_articles)
-        return {"total": total, "batch_time": latest_scraped}
+        return {"total": total, "batch_time": latest_scored}
 
 all_articles = load_articles()
 batch_stats  = load_batch_stats()
