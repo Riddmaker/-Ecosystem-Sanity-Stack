@@ -39,5 +39,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_LC }}:${{ github.sha }}
 
       - name: Trigger Jelastic redeploy (Production)
+        continue-on-error: true
         run: |
           curl -fSs "${{ secrets.JELASTIC_WEBHOOK_PROD }}"
