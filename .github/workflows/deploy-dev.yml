@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -38,6 +39,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_LC }}:dev
             ${{ env.REGISTRY }}/${{ env.IMAGE_LC }}:dev-${{ github.sha }}
 
-      - name: Trigger Jelastic redeploy (Test)
+      - name: Trigger Jelastic redeploy (Dev)
+        continue-on-error: true
         run: |
-          curl -fSs "${{ secrets.JELASTIC_WEBHOOK_TEST }}"
+          curl -fSs "${{ secrets.JELASTIC_WEBHOOK_DEV }}"
