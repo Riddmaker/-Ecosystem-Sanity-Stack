@@ -22,31 +22,50 @@ Reading them together tells the real story:
 - **High ragebait + High weight** → Worst pattern: exploitation of real suffering for engagement.
 - **Low ragebait + Low weight** → Clean informational content.
 
-### Two-tier cost model
+### Two-tier cost model + judge
 
 Scoring every article with a large LLM would be expensive. Instead:
 
-1. **Tier 1 — Mistral Small** screens all new articles (title + first 500 chars). Cheap. Fast. Runs on every article per scrape batch.
-2. **Tier 2 — Mistral Large** runs the full analysis (both dimensions, all sub-scores) only on the article with the highest Tier-1 flag. That article becomes the dashboard highlight.
-
-The dashboard shows: *"Our small model flagged X of Y articles in the last batch. Strongest signal in detail."*
+1. **Tier 1 — Mistral Small** screens all new articles (title + first 500 chars). Cheap. Fast. Runs on every article per batch.
+2. **Tier 2 — Mistral Large** runs the full analysis (both dimensions, all sub-scores) on the top 5 flagged candidates.
+3. **Judge step — Mistral Large** compares the top 5 results qualitatively and picks the dashboard highlight, with reasoning.
 
 ---
 
 ## Architecture
 
 ```
-run_pipeline.py          ← hourly entry point
+scheduler.py             ← runs pipeline hourly
 │
-├── Scraper              ← pulls articles from your news source
-├── ArticleRepository    ← upsert with SHA-256 content dedup
-├── PreScorer            ← Mistral Small, title + 500 chars → pre_score
-└── MediaScorer          ← Mistral Large, full content → ragebait + weight
-         │
-         └── Streamlit dashboard  ← src/frontend/app.py
+└── src/pipeline.py      ← core pipeline logic
+    │
+    ├── Scrapers (4x)    ← 20min.ch · watson.ch · blick.ch · nau.ch
+    ├── ArticleRepository← upsert with SHA-256 content dedup
+    ├── PreScorer        ← Mistral Small → pre_score (all new articles)
+    ├── MediaScorer      ← Mistral Large → ragebait + emotional weight (top 5)
+    └── Judge            ← Mistral Large → picks dashboard highlight from top 5
+             │
+             └── Streamlit dashboard  ← src/frontend/app.py
 ```
 
 **Deduplication:** Every article is hashed (SHA-256 of content). Re-scraped unchanged articles only update `scraped_at` — no re-scoring. Changed content resets all scores.
+
+**Rate limiting:** Thread-safe per-tier limiters (1 req/s for Large, 5 req/s for Small) prevent API bursts across parallel calls.
+
+---
+
+## Sources
+
+Ships with four Swiss German news scrapers as reference implementations:
+
+| Source | Connector |
+|---|---|
+| [20min.ch](https://www.20min.ch) | `twenty_minutes_scraper_connector.py` |
+| [watson.ch](https://www.watson.ch) | `watson_scraper_connector.py` |
+| [blick.ch](https://www.blick.ch) | `blick_scraper_connector.py` |
+| [nau.ch](https://www.nau.ch) | `nau_scraper_connector.py` |
+
+All four scrapers parse JSON-LD `NewsArticle` blocks with trafilatura as fallback.
 
 ---
 
@@ -68,19 +87,19 @@ See [`THEORETICAL_FOUNDATION.md`](THEORETICAL_FOUNDATION.md) for the full theore
 
 ---
 
-## Setup
+## Local development
 
 ### Prerequisites
 
 - Python 3.11+
-- Docker (for PostgreSQL)
+- Docker
 - [Mistral API key](https://console.mistral.ai/)
 
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-org/ecosystem-sanity-stack
-cd ecosystem-sanity-stack
+git clone https://github.com/Riddmaker/-Ecosystem-Sanity-Stack
+cd -Ecosystem-Sanity-Stack
 python -m venv .venv
 .venv/Scripts/activate       # Windows
 # source .venv/bin/activate  # macOS/Linux
@@ -97,51 +116,75 @@ Edit `.env`:
 
 ```
 MISTRAL_API_KEY=your_key_here
+POSTGRES_USER=sanity
+POSTGRES_PASSWORD=sanity
+POSTGRES_DB=sanity
+POSTGRES_PORT=5432
 DATABASE_URL=postgresql://sanity:sanity@localhost:5432/sanity
 ```
 
-### 3. Start the database
+### 3. Start everything
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-### 4. Run the pipeline (first time)
-
-```bash
-python run_pipeline.py
-```
-
-This will:
-- Scrape your configured news source
-- Pre-screen all articles with Mistral Small
-- Full-analyze the top flagged article with Mistral Large
-
-### 5. Start the dashboard
-
-```bash
-.venv/Scripts/python -m streamlit run src/frontend/app.py
-```
+This starts three containers: `db` (PostgreSQL), `frontend` (Streamlit on port 8501), `scheduler` (hourly pipeline runner).
 
 Open [http://localhost:8501](http://localhost:8501).
 
-### 6. Schedule hourly runs
+### Run the pipeline manually
 
-**Linux/macOS (cron):**
 ```bash
-crontab -e
-# Add:
-0 * * * * /path/to/.venv/bin/python /path/to/run_pipeline.py >> /var/log/sanity.log 2>&1
+python run_pipeline.py
+# or with filters:
+python run_pipeline.py --hours 3 --max-articles 10 --sources 20min watson
 ```
 
-**Windows (Task Scheduler):**
-Create a Basic Task → Trigger: Daily, repeat every 1 hour → Action: `.venv\Scripts\python.exe run_pipeline.py`
+---
+
+## Production deployment
+
+The app runs as a **single Docker container** on [Jelastic PaaS](https://jelastic.com/), with a separate managed PostgreSQL node.
+
+The container runs `start.sh` which starts the scheduler in the background and Streamlit in the foreground.
+
+### Deployment flow
+
+```
+Push / merge to main
+        │
+        ▼
+GitHub Actions (deploy-prod.yml)
+  → Build image
+  → Push ghcr.io/riddmaker/ecosystem-sanity-stack:latest
+  → Fire JELASTIC_WEBHOOK_PROD
+        │
+        ▼
+Jelastic pulls :latest and redeploys
+```
+
+### Required GitHub secrets
+
+| Secret | Value |
+|---|---|
+| `JELASTIC_WEBHOOK_PROD` | Redeploy webhook URL from your Jelastic environment |
+
+### Required environment variables in Jelastic
+
+```
+MISTRAL_API_KEY=...
+DATABASE_URL=postgresql://user:password@<db-host>/dbname
+POSTGRES_HOST=<internal db hostname>
+POSTGRES_USER=...
+POSTGRES_PASSWORD=...
+POSTGRES_DB=...
+POSTGRES_PORT=5432
+```
 
 ---
 
 ## Adapting to your news source
-
-The project ships with a scraper for [20min.ch](https://www.20min.ch) (Switzerland) as a reference implementation. To use it with your local news source:
 
 ### Option A — Build a scraper connector
 
@@ -155,26 +198,18 @@ class MyNewsConnector(BaseScraperConnector):
     SOURCE = "mynews.com"
     LANGUAGE = "en"
 
-    def get_articles(self, max_articles=None, **kwargs) -> list[Article]:
+    def get_articles(self, since=None, max_articles=None) -> list[Article]:
         # Your scraping logic here
-        # Return a list of Article objects
         ...
 ```
 
-Then update `run_pipeline.py` to use your connector:
-
-```python
-from src.connectors.specific_scraper.my_news_connector import MyNewsConnector
-connector = MyNewsConnector()
-```
+Then add it to `src/pipeline.py` alongside the existing sources.
 
 ### Option B — RSS feed connector
 
 An `RSSConnector` base class is available in `src/connectors/abstract/rss_connector.py` for sources that expose an RSS feed.
 
 ### The Article model
-
-Your connector needs to return `Article` objects (defined in `src/connectors/abstract/models.py`):
 
 ```python
 Article(
@@ -191,40 +226,39 @@ Article(
 
 ---
 
-## Database migrations
-
-| Script | Changes |
-|---|---|
-| `migrate_v3_to_v4.py` | Renamed sanity_score → ragebait_score, added emotional_weight |
-| `migrate_v4_to_v5.py` | Added pre_score columns (Tier-1 screening) |
-
-Run with: `.venv/Scripts/python migrate_vX_to_vY.py`
-
----
-
 ## Project structure
 
 ```
 ecosystem-sanity-stack/
-├── run_pipeline.py              # hourly entry point: scrape → pre-screen → full-score
+├── run_pipeline.py              # CLI entry point (one-shot run)
+├── scheduler.py                 # hourly loop — calls src/pipeline.py
+├── start.sh                     # container entrypoint: scheduler + frontend
 ├── src/
+│   ├── pipeline.py              # core pipeline logic (importable)
 │   ├── connectors/
 │   │   ├── abstract/            # BaseScraperConnector, RSSConnector, Article model
-│   │   └── specific_scraper/    # 20min.ch reference implementation
+│   │   └── specific_scraper/    # 20min · watson · blick · nau
 │   ├── db/
 │   │   ├── models.py            # SQLAlchemy ORM (ArticleModel)
-│   │   ├── repository.py        # upsert, dedup, get_unscored helpers
+│   │   ├── repository.py        # upsert, dedup, query helpers
 │   │   └── connection.py        # engine + session factory
 │   ├── scoring/
 │   │   ├── pre_scorer.py        # Tier-1: Mistral Small
 │   │   ├── pre_prompts.py       # Tier-1 prompt
-│   │   ├── scorer.py            # Tier-2: Mistral Large (MediaScorer)
+│   │   ├── scorer.py            # Tier-2 + judge: Mistral Large
 │   │   ├── prompts.py           # Tier-2 prompts (German, few-shot)
-│   │   └── schemas.py           # Pydantic schemas
+│   │   ├── schemas.py           # Pydantic schemas
+│   │   └── throttle.py          # rate limiter singletons
 │   └── frontend/
 │       └── app.py               # Streamlit dashboard
-├── THEORETICAL_FOUNDATION.md    # Research context
-├── docker-compose.yml           # PostgreSQL
+├── tests/
+│   └── test_connectors.py       # unit tests for all 4 scrapers (no network/DB)
+├── migrations/
+│   ├── migrate_v3_to_v4.py
+│   └── migrate_v4_to_v5.py
+├── Dockerfile
+├── docker-compose.yml           # local dev: db + frontend + scheduler
+├── THEORETICAL_FOUNDATION.md
 └── requirements.txt
 ```
 
@@ -238,3 +272,12 @@ Current version: **v4** (Ragebait Index + Emotional Weight, Mistral Large Latest
 Pre-screen version: **v4-pre** (Mistral Small Latest)
 
 ---
+
+## Database migrations
+
+| Script | Changes |
+|---|---|
+| `migrate_v3_to_v4.py` | Renamed sanity_score → ragebait_score, added emotional_weight |
+| `migrate_v4_to_v5.py` | Added pre_score columns (Tier-1 screening) |
+
+Run with: `.venv/Scripts/python migrations/migrate_vX_to_vY.py`
