@@ -380,6 +380,7 @@ if latest:
         section_label = (
             f'Höchster Ragebait-Score im letzten Batch &nbsp;·&nbsp; '
             f'{bs["total"]} Artikel gescreent ({batch_time_str})'
+            f'&nbsp;·&nbsp; Aktualisierung stündlich'
         )
     else:
         section_label = "Höchster Ragebait-Score"
