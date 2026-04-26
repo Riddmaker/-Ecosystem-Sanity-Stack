@@ -17,9 +17,7 @@ RUN playwright install chromium --with-deps
 COPY src/ ./src/
 COPY run_pipeline.py .
 COPY scheduler.py .
+COPY start.sh .
+RUN chmod +x start.sh
 
-# Default: run the frontend. Override with `command:` in docker-compose for the worker.
-CMD ["streamlit", "run", "src/frontend/app.py", \
-     "--server.port=8501", \
-     "--server.headless=true", \
-     "--server.address=0.0.0.0"]
+CMD ["./start.sh"]
