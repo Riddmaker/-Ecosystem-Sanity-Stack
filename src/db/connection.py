@@ -1,0 +1,62 @@
+"""
+Database engine and session factory.
+"""
+
+import os
+from contextlib import contextmanager
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from src.db.models import Base
+
+
+def get_database_url() -> str:
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+    return url
+
+
+def build_engine(database_url: str | None = None, **kwargs):
+    url = database_url or get_database_url()
+    return create_engine(url, **kwargs)
+
+
+def create_tables(engine) -> None:
+    """Create all tables if they don't exist yet."""
+    Base.metadata.create_all(engine)
+
+
+# Module-level singletons — initialised on first use
+_engine = None
+_SessionFactory = None
+
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = build_engine()
+    return _engine
+
+
+def _get_session_factory():
+    global _SessionFactory
+    if _SessionFactory is None:
+        _SessionFactory = sessionmaker(bind=_get_engine(), expire_on_commit=False)
+    return _SessionFactory
+
+
+@contextmanager
+def get_session() -> Session:
+    """Context manager that yields a session and handles commit/rollback."""
+    factory = _get_session_factory()
+    session: Session = factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

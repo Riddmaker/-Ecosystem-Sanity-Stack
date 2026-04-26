@@ -1,0 +1,206 @@
+"""
+MediaScorer — scores a news article on the Ragebait Index via Mistral Large.
+
+Four sub-scores are computed in parallel (one API call each):
+  curiosity_gap          — Blom & Hansen (2015)
+  conflict_staging       — Rony et al. (2017)
+  emotional_inflation    — Potthast et al. (2016)
+  narrative_exploitation — Brady et al. (2017)
+
+Composite score = mean of the four sub-scores.
+"""
+
+import json
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+from typing import Optional
+
+from mistralai.client import Mistral
+
+from src.scoring.schemas import RagebaitScore, ScoreResult
+from src.scoring.throttle import large_limiter
+from src.scoring.prompts import (
+    SUB_SCORE_USER,
+    CURIOSITY_GAP_SYSTEM,
+    CONFLICT_STAGING_SYSTEM,
+    EMOTIONAL_INFLATION_SYSTEM,
+    NARRATIVE_EXPLOITATION_SYSTEM,
+    JUDGE_SYSTEM,
+    JUDGE_USER,
+)
+
+SCORE_MODEL_ID    = "mistral-large-latest"
+SCORE_VERSION     = "v7"
+RANDOM_SEED       = 42
+TEMPERATURE       = 0.0
+MAX_CONTENT_CHARS = 3000
+
+_SUB_TASKS = [
+    ("curiosity_gap",          CURIOSITY_GAP_SYSTEM),
+    ("conflict_staging",       CONFLICT_STAGING_SYSTEM),
+    ("emotional_inflation",    EMOTIONAL_INFLATION_SYSTEM),
+    ("narrative_exploitation", NARRATIVE_EXPLOITATION_SYSTEM),
+]
+
+
+class MediaScorer:
+    """
+    Scores a news article on the Ragebait Index.
+
+    Four sub-score API calls are fired in parallel, then aggregated.
+
+    Usage:
+        scorer = MediaScorer()
+        result = scorer.score(title="...", content="...")
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model: str = SCORE_MODEL_ID):
+        key = api_key or os.environ.get("MISTRAL_API_KEY")
+        if not key:
+            raise ValueError("No API key provided. Set MISTRAL_API_KEY env variable.")
+        self.client = Mistral(api_key=key)
+        self.model  = model
+
+    def score(self, title: str, content: str) -> ScoreResult:
+        """Fire 4 parallel sub-score calls and return an aggregated ScoreResult."""
+        content_trunc = content[:MAX_CONTENT_CHARS]
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            future_map = {
+                executor.submit(self._score_sub, system, title, content_trunc): key
+                for key, system in _SUB_TASKS
+            }
+            sub_scores: dict[str, dict] = {}
+            for future in as_completed(future_map):
+                key = future_map[future]
+                sub_scores[key] = future.result()
+
+        cg = sub_scores["curiosity_gap"]
+        cs = sub_scores["conflict_staging"]
+        ei = sub_scores["emotional_inflation"]
+        ne = sub_scores["narrative_exploitation"]
+
+        composite = (cg["score"] + cs["score"] + ei["score"] + ne["score"]) / 4.0
+
+        # Combined reasoning kept for backward-compat display fallback
+        reasoning = (
+            f"curiosity_gap-{cg['reasoning']} "
+            f"conflict_staging-{cs['reasoning']} "
+            f"emotional_inflation-{ei['reasoning']} "
+            f"narrative_exploitation-{ne['reasoning']}"
+        )
+
+        ragebait = RagebaitScore(
+            score=composite,
+            curiosity_gap=cg["score"],
+            curiosity_gap_reasoning=cg["reasoning"],
+            conflict_staging=cs["score"],
+            conflict_staging_reasoning=cs["reasoning"],
+            emotional_inflation=ei["score"],
+            emotional_inflation_reasoning=ei["reasoning"],
+            narrative_exploitation=ne["score"],
+            narrative_exploitation_reasoning=ne["reasoning"],
+            reasoning=reasoning,
+        )
+
+        return ScoreResult(
+            ragebait_score=composite,
+            ragebait=ragebait,
+            reasoning=reasoning,
+        )
+
+    def judge_articles(self, scored: list[dict]) -> dict:
+        """
+        Qualitative winner selection across already-scored candidates.
+
+        Args:
+            scored: list of dicts with keys:
+                      title, ragebait_score, curiosity_gap, conflict_staging,
+                      emotional_inflation, narrative_exploitation, reasoning
+
+        Returns:
+            {"chosen": int (1-indexed), "reasoning": str}
+        """
+        lines = []
+        for i, a in enumerate(scored, start=1):
+            lines.append(
+                f"[Artikel {i}]\n"
+                f"Titel: «{a['title']}»\n"
+                f"Ragebait-Score: {a['ragebait_score']:.1f}\n"
+                f"Curiosity Gap: {a['curiosity_gap']:.1f} | "
+                f"Conflict Staging: {a['conflict_staging']:.1f} | "
+                f"Emotional Inflation: {a['emotional_inflation']:.1f} | "
+                f"Narrative Exploitation: {a['narrative_exploitation']:.1f}\n"
+                f"Scoring-Reasoning: \"{a['reasoning']}\""
+            )
+        articles_block = "\n\n".join(lines)
+        user_msg = JUDGE_USER.format(n=len(scored), articles=articles_block)
+        raw = self._query(JUDGE_SYSTEM, user_msg)
+
+        chosen = int(raw.get("chosen", 1))
+        chosen = max(1, min(chosen, len(scored)))
+        return {"chosen": chosen, "reasoning": raw.get("reasoning", "")}
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _score_sub(self, system: str, title: str, content: str) -> dict:
+        """Score a single sub-dimension. Returns {"score": float, "reasoning": str}."""
+        user_msg = SUB_SCORE_USER.format(title=title, content=content)
+        raw = self._query(system, user_msg)
+        score = float(raw.get("score", 0))
+        score = max(0.0, min(10.0, score))
+        return {"score": score, "reasoning": raw.get("reasoning", "")}
+
+    def _query(self, system: str, user: str, _retries: int = 4) -> dict:
+        for attempt in range(_retries):
+            large_limiter.wait()
+            try:
+                response = self.client.chat.complete(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user",   "content": user},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=TEMPERATURE,
+                    random_seed=RANDOM_SEED,
+                )
+                return json.loads(response.choices[0].message.content)
+            except Exception as e:
+                if "429" in str(e) and attempt < _retries - 1:
+                    backoff = 10 * (attempt + 1)  # 10s, 20s, 30s
+                    time.sleep(backoff)
+                else:
+                    raise
+
+
+def result_to_db_fields(result: ScoreResult) -> dict:
+    """Convert a ScoreResult into fields for ArticleModel."""
+    rb = result.ragebait
+    return {
+        "ragebait_score": result.ragebait_score,
+        "score_details": {
+            "ragebait_score": result.ragebait_score,
+            "ragebait": {
+                "score":                          rb.score,
+                "curiosity_gap":                  rb.curiosity_gap,
+                "curiosity_gap_reasoning":         rb.curiosity_gap_reasoning,
+                "conflict_staging":               rb.conflict_staging,
+                "conflict_staging_reasoning":      rb.conflict_staging_reasoning,
+                "emotional_inflation":            rb.emotional_inflation,
+                "emotional_inflation_reasoning":   rb.emotional_inflation_reasoning,
+                "narrative_exploitation":         rb.narrative_exploitation,
+                "narrative_exploitation_reasoning": rb.narrative_exploitation_reasoning,
+                "reasoning":                      rb.reasoning,
+            },
+            "temperature": TEMPERATURE,
+            "random_seed": RANDOM_SEED,
+        },
+        "score_model":       SCORE_MODEL_ID,
+        "score_version":     SCORE_VERSION,
+        "score_computed_at": datetime.now(timezone.utc),
+    }
