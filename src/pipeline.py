@@ -6,6 +6,7 @@ Stages: scrape → upsert → pre-screen → gate → full-score → judge.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -32,7 +33,10 @@ CONNECTORS = {
     "blick":  BlickScraperConnector,
     "nau":    NauScraperConnector,
 }
+# Every registered source — usable explicitly (e.g. CLI `--sources blick`).
 ALL_SOURCES = list(CONNECTORS)
+# Sources a default run actually scrapes (see config.DISABLED_SOURCES).
+DEFAULT_SOURCES = [s for s in ALL_SOURCES if s not in config.DISABLED_SOURCES]
 
 
 def is_paywalled(article: ArticleModel) -> bool:
@@ -52,17 +56,35 @@ def _scrape(
     since: Optional[datetime],
     max_articles: Optional[int],
 ) -> list[Article]:
-    """Run every requested connector; a failing source never aborts the run."""
+    """
+    Run every requested connector; neither a failing nor a hanging source
+    aborts the run. Each connector runs under a hard wall-clock cap
+    (config.SCRAPE_SOURCE_TIMEOUT): if it overruns — e.g. a Playwright
+    navigation that ignores its own timeout against a bot wall — the worker
+    thread is abandoned and the run moves on to the next source.
+    """
     all_articles: list[Article] = []
     for name in sources:
         connector_cls = CONNECTORS[name]
         log.info("Scraping %s", connector_cls.SOURCE)
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"scrape-{name}")
+        future = executor.submit(
+            connector_cls().get_articles, since=since, max_articles=max_articles
+        )
         try:
-            fetched = connector_cls().get_articles(since=since, max_articles=max_articles)
+            fetched = future.result(timeout=config.SCRAPE_SOURCE_TIMEOUT)
             all_articles.extend(fetched)
             log.info("%s: %d articles", connector_cls.SOURCE, len(fetched))
+        except FutureTimeoutError:
+            log.error(
+                "Scrape for %s exceeded %ss — skipping (worker thread abandoned).",
+                connector_cls.SOURCE, config.SCRAPE_SOURCE_TIMEOUT,
+            )
         except Exception:
             log.exception("Scrape failed for %s", connector_cls.SOURCE)
+        finally:
+            # Don't block on a stuck worker; let it die with the process.
+            executor.shutdown(wait=False)
     return all_articles
 
 
@@ -224,13 +246,14 @@ def run(
     Args:
         hours:        Only include articles published within the last N hours.
         max_articles: Hard cap on articles fetched per source.
-        sources:      Which sources to scrape. Defaults to all of them.
+        sources:      Which sources to scrape. Defaults to DEFAULT_SOURCES
+                      (all registered sources minus config.DISABLED_SOURCES).
 
     Returns:
         True if at least one article was fully scored, False otherwise.
     """
     if sources is None:
-        sources = ALL_SOURCES
+        sources = DEFAULT_SOURCES
 
     init_db()
 

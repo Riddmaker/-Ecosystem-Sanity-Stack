@@ -3,6 +3,16 @@
 Guidance for AI agents (Claude Code) working in this repository. See `README.md` for
 the full project description, research basis, and deployment guide.
 
+<coding_conventions>
+- HABIT 1: [Security First] Never hardcode sensitive credentials or API keys; always use environment variables. Actively avoid reading, echoing, or printing raw secret values into the terminal or chat context to prevent them from leaking into the LLM context window.
+- HABIT 2: [Agentic Initiative] When fixing errors, analyze the terminal output directly using CLI commands rather than asking the user to copy-paste logs.
+- HABIT 3: [Plan First] Before executing any complex task, you must draft a clear, step-by-step execution plan based on existing documentation. Lay it out for yourself and the user, and wait for explicit approval before writing code.
+- HABIT 4: [Library Integrity] When working with external libraries, never guess the syntax. You must first consult the official documentation or the local source code (via the venv or internet tools) to ensure the library, with the version we use in the code-bse, is applied correctly semantically and synthactically.
+- HABIT 5: [Documentation Maintenance] Keep the repository's documentation up-to-date with code changes. Ensure zero contradictions between the code and docs. If contradictions arise, highlight them, decide on the best path, or discuss them with the user.
+- HABIT 6: [Step-by-Step Reasoning] Before performing any architectural change or fix, layout a logical reasoning process. Think through edge cases step-by-step before executing commands.
+- HABIT 7: [Meta-Optimization] Continuously evaluate our interactions. If you notice repetitive manual tasks, recurring boilerplate generation, or identical shell commands being executed across multiple turns, STOP and proactively suggest an automation. Advise the user if creating a new Skill, Hook, or Plugin from the Marketplace, or using a dedicated CLI or MCP, or using a Subagent would optimize the workflow, strictly following the "Lightest First" philosophy.
+</coding_conventions>
+
 ## What this is
 Ecosystem Sanity Stack — measures "media hygiene" by scoring Swiss German news articles
 for manufactured emotion (a **Ragebait Index**) using a two-tier Mistral LLM pipeline,
@@ -75,3 +85,11 @@ docker compose up -d            # db + frontend + scheduler
   marked `pre_score=0` and skipped — scoring truncated marketing copy inflates every metric.
 - `_parse_datetime` falls back to `now()` for missing/unparseable dates, which affects the
   `since` filter (intentional — left as-is).
+- **Blick is disabled in production** (`config.DISABLED_SOURCES`). Akamai bot protection
+  returns `403` to datacenter IP ranges (Infomaniak/Jelastic) for the *entire* `blick.ch`
+  domain — pages, sitemaps and RSS — so it can't be scraped from the server. It still works
+  from a residential IP, so it stays in `CONNECTORS` and can be run explicitly
+  (`run_pipeline.py --sources blick`) locally. A default run scrapes `DEFAULT_SOURCES` only.
+- `_scrape` runs each source under a hard wall-clock cap (`config.SCRAPE_SOURCE_TIMEOUT`).
+  A connector that hangs (e.g. a Playwright navigation that ignores its own timeout against
+  a bot wall) is abandoned so it can never freeze the whole run / the hourly daemon.
