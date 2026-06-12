@@ -124,6 +124,7 @@ python -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS/Linux
 pip install -r requirements.txt
+pip install -e . --no-deps     # makes `src` importable from anywhere (e.g. streamlit run)
 ```
 
 ### 2. Configure environment
@@ -380,8 +381,10 @@ ecosystem-sanity-stack/
 ├── scheduler.py                 # hourly loop — calls src/pipeline.py
 ├── start.sh                     # container entrypoint: scheduler + frontend
 ├── pytest.ini                   # test configuration
+├── pyproject.toml               # packaging — `pip install -e .` makes src importable
 ├── src/
 │   ├── pipeline.py              # core pipeline logic (importable)
+│   ├── config.py                # cross-cutting tunables (thresholds, windows)
 │   ├── connectors/
 │   │   ├── abstract/            # BaseScraperConnector, RSSConnector, Article model
 │   │   └── specific_scraper/    # 20min · watson · blick · nau
@@ -390,6 +393,7 @@ ecosystem-sanity-stack/
 │   │   ├── repository.py        # upsert, dedup, query helpers
 │   │   └── connection.py        # engine + session factory
 │   ├── scoring/
+│   │   ├── llm_client.py        # shared Mistral JSON client (retry, rate limits)
 │   │   ├── pre_scorer.py        # Tier-1: Mistral Small
 │   │   ├── pre_prompts.py       # Tier-1 prompt
 │   │   ├── scorer.py            # Tier-2 + judge: Mistral Large
@@ -397,7 +401,10 @@ ecosystem-sanity-stack/
 │   │   ├── schemas.py           # Pydantic schemas
 │   │   └── throttle.py          # rate limiter singletons
 │   └── frontend/
-│       └── app.py               # Streamlit dashboard
+│       ├── app.py               # Streamlit dashboard (composition)
+│       ├── data.py              # DB queries + highlight selection
+│       ├── components.py        # HTML builders for the dashboard cards
+│       └── styles.py            # CSS + theming
 ├── tests/
 │   ├── conftest.py              # shared fixtures + skip conditions
 │   ├── test_connectors.py       # unit tests — all 4 scrapers (no network/DB)

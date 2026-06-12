@@ -19,6 +19,10 @@ COPY scheduler.py .
 COPY start.sh .
 RUN chmod +x start.sh
 
+# Make `src` importable regardless of how the entrypoint is launched
+# (streamlit run src/frontend/app.py does not add /app to sys.path)
+ENV PYTHONPATH=/app
+
 # Keep package lists fresh so Jelastic can install its tooling (ssh, cron etc.) on first start
 RUN apt-get update
 
