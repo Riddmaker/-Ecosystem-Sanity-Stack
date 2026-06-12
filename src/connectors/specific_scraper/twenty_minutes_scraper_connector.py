@@ -26,17 +26,6 @@ from src.connectors.abstract.scraper_connector import BaseScraperConnector
 
 BASE_URL = "https://www.20min.ch"
 
-DEFAULT_SECTIONS = [
-    "/",
-    "/news",
-    "/sport",
-    "/wirtschaft",
-    "/leben",
-    "/digital",
-]
-
-CRAWL_DELAY = 1.0
-
 
 class TwentyMinutesScraperConnector(BaseScraperConnector):
     """
@@ -52,15 +41,16 @@ class TwentyMinutesScraperConnector(BaseScraperConnector):
 
     SOURCE = "20min.ch"
     LANGUAGE = "de"
-
-    def __init__(self, sections: Optional[list[str]] = None, crawl_delay: float = CRAWL_DELAY):
-        self._sections = sections or DEFAULT_SECTIONS
-        self._crawl_delay = crawl_delay
-        self._session = self._init_session()
-
-    @property
-    def index_urls(self) -> list[str]:
-        return [urljoin(BASE_URL, section) for section in self._sections]
+    BASE_URL = BASE_URL
+    CRAWL_DELAY = 1.0
+    DEFAULT_SECTIONS = [
+        "/",
+        "/news",
+        "/sport",
+        "/wirtschaft",
+        "/leben",
+        "/digital",
+    ]
 
     # ------------------------------------------------------------------
     # Index page

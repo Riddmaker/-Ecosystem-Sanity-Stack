@@ -3,23 +3,28 @@ Abstract base classes for web scraper-based news connectors.
 
 Hierarchy
 ─────────
-BaseScraperConnector          — shared utilities + HTTP (requests) pipeline
-└── BasePlaywrightScraperConnector  — same interface, Playwright browser lifecycle
+BaseScraperConnector          — shared crawl loop + HTTP (requests) fetching
+└── BasePlaywrightScraperConnector  — same crawl loop, Playwright browser lifecycle
 
 Concrete HTTP scrapers  (watson, 20min, nau) extend BaseScraperConnector.
 Concrete PW scrapers    (blick)              extend BasePlaywrightScraperConnector.
 """
 
 import json
+import logging
 import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
 from src.connectors.abstract.models import Article
+
+log = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -32,17 +37,19 @@ class BaseScraperConnector(ABC):
 
     Subclasses MUST define:
         SOURCE           — class-level str, e.g. "watson.ch"
-        LANGUAGE         — class-level str (default "de")
-        index_urls       — property returning list of section URLs to crawl
+        BASE_URL         — class-level str, e.g. "https://www.watson.ch"
+        DEFAULT_SECTIONS — class-level list of section paths to crawl
         extract_article_links(html, index_url) → list[str]
         parse_article(html, url)               → Article
         _extract_article_id(url)               → Optional[str]
 
     Subclasses MAY override:
+        LANGUAGE         — class-level str (default "de")
+        CRAWL_DELAY      — seconds between article fetches (default 0)
         fetch_html(url)                        — default: requests.Session
         _parse_breadcrumb(items)               — default: skip Home + last crumb
         _parse_author(author)                  — default: handles dict/list/str
-        get_articles(...)                      — default: full HTTP pipeline
+        index_urls                             — default: BASE_URL + sections
 
     Shared utilities (static, ready to use in any subclass):
         _parse_json_ld(soup)     → (news_article, breadcrumb_items, author_name)
@@ -53,15 +60,22 @@ class BaseScraperConnector(ABC):
 
     SOURCE: str = ""
     LANGUAGE: str = "de"
+    BASE_URL: str = ""
+    DEFAULT_SECTIONS: list[str] = []
+    CRAWL_DELAY: float = 0.0
+
+    def __init__(
+        self,
+        sections: Optional[list[str]] = None,
+        crawl_delay: Optional[float] = None,
+    ):
+        self._sections = sections or self.DEFAULT_SECTIONS
+        self._crawl_delay = self.CRAWL_DELAY if crawl_delay is None else crawl_delay
+        self._session = self._init_session()
 
     # ------------------------------------------------------------------
     # Abstract interface
     # ------------------------------------------------------------------
-
-    @property
-    @abstractmethod
-    def index_urls(self) -> list[str]:
-        """Section/index pages to crawl for article links."""
 
     @abstractmethod
     def extract_article_links(self, html: str, index_url: str) -> list[str]:
@@ -77,7 +91,16 @@ class BaseScraperConnector(ABC):
         """Extract a site-specific article ID from its URL."""
 
     # ------------------------------------------------------------------
-    # HTTP fetching (override in Playwright subclass)
+    # Crawl targets
+    # ------------------------------------------------------------------
+
+    @property
+    def index_urls(self) -> list[str]:
+        """Section/index pages to crawl for article links."""
+        return [urljoin(self.BASE_URL, section) for section in self._sections]
+
+    # ------------------------------------------------------------------
+    # Fetching hooks (overridden by the Playwright base)
     # ------------------------------------------------------------------
 
     def fetch_html(self, url: str) -> str:
@@ -86,11 +109,22 @@ class BaseScraperConnector(ABC):
         response.raise_for_status()
         return response.text
 
+    @contextmanager
+    def _fetch_context(self):
+        """Resource scope for one full crawl. No-op for plain HTTP."""
+        yield
+
+    def _fetch_index_html(self, url: str) -> str:
+        return self.fetch_html(url)
+
+    def _fetch_article_html(self, url: str) -> str:
+        return self.fetch_html(url)
+
     def _init_session(
         self,
         extra_headers: Optional[dict] = None,
     ) -> requests.Session:
-        """Create a requests.Session with a realistic browser UA. Call in __init__."""
+        """Create a requests.Session with a realistic browser UA."""
         session = requests.Session()
         session.headers.update({
             "User-Agent": (
@@ -229,7 +263,7 @@ class BaseScraperConnector(ABC):
         return " ".join(clean.split())
 
     # ------------------------------------------------------------------
-    # Full HTTP pipeline — override completely in Playwright subclass
+    # Crawl loop — shared by HTTP and Playwright connectors
     # ------------------------------------------------------------------
 
     def get_articles(
@@ -251,68 +285,70 @@ class BaseScraperConnector(ABC):
         articles: list[Article] = []
         seen_urls: set[str] = set()
 
-        for index_url in self.index_urls:
-            if max_articles and len(articles) >= max_articles:
-                break
-            try:
-                html = self.fetch_html(index_url)
-            except Exception as e:
-                print(f"{tag} Failed to fetch index {index_url}: {e}")
-                continue
-
-            links = self.extract_article_links(html, index_url)
-            print(f"{tag} {len(links)} links found on {index_url}")
-
-            consecutive_old = 0
-
-            for url in links:
+        with self._fetch_context():
+            for index_url in self.index_urls:
                 if max_articles and len(articles) >= max_articles:
                     break
-                if url in seen_urls:
-                    continue
-                seen_urls.add(url)
-
-                if hasattr(self, "_crawl_delay"):
-                    time.sleep(self._crawl_delay)
-
                 try:
-                    article_html = self.fetch_html(url)
-                    article = self.parse_article(article_html, url)
+                    html = self._fetch_index_html(index_url)
+                except Exception as e:
+                    log.warning("%s Failed to fetch index %s: %s", tag, index_url, e)
+                    continue
 
-                    if not article.title or not article.content:
-                        print(f"{tag} SKIP (no title/content): {url}")
+                links = self.extract_article_links(html, index_url)
+                log.info("%s %d links found on %s", tag, len(links), index_url)
+
+                consecutive_old = 0
+
+                for url in links:
+                    if max_articles and len(articles) >= max_articles:
+                        break
+                    if url in seen_urls:
                         continue
+                    seen_urls.add(url)
 
-                    if since is not None:
-                        pub = article.published_at
-                        if pub.tzinfo is None:
-                            pub = pub.replace(tzinfo=timezone.utc)
-                        if pub < since:
-                            consecutive_old += 1
-                            print(
-                                f"{tag} OLD ({consecutive_old}/{max_consecutive_old})"
-                                f"  {pub.strftime('%H:%M')}  {article.title[:60]}"
-                            )
-                            if consecutive_old >= max_consecutive_old:
-                                print(
-                                    f"{tag} {max_consecutive_old} consecutive old"
-                                    f" articles — stopping section."
-                                )
-                                break
+                    if self._crawl_delay:
+                        time.sleep(self._crawl_delay)
+
+                    try:
+                        article_html = self._fetch_article_html(url)
+                        article = self.parse_article(article_html, url)
+
+                        if not article.title or not article.content:
+                            log.info("%s SKIP (no title/content): %s", tag, url)
                             continue
 
-                    consecutive_old = 0
-                    articles.append(article)
-                    pub_str = (
-                        article.published_at.strftime("%H:%M")
-                        if article.published_at else "?"
-                    )
-                    print(f"{tag} OK   {pub_str}  {article.title[:60]}")
+                        if since is not None:
+                            pub = article.published_at
+                            if pub.tzinfo is None:
+                                pub = pub.replace(tzinfo=timezone.utc)
+                            if pub < since:
+                                consecutive_old += 1
+                                log.info(
+                                    "%s OLD (%d/%d)  %s  %s",
+                                    tag, consecutive_old, max_consecutive_old,
+                                    pub.strftime("%H:%M"), article.title[:60],
+                                )
+                                if consecutive_old >= max_consecutive_old:
+                                    log.info(
+                                        "%s %d consecutive old articles — stopping section.",
+                                        tag, max_consecutive_old,
+                                    )
+                                    break
+                                continue
 
-                except Exception as e:
-                    print(f"{tag} FAIL {url}: {e}")
+                        consecutive_old = 0
+                        articles.append(article)
+                        pub_str = (
+                            article.published_at.strftime("%H:%M")
+                            if article.published_at else "?"
+                        )
+                        log.info("%s OK   %s  %s", tag, pub_str, article.title[:60])
 
-        print(f"{tag} Done — {len(articles)} articles collected.")
+                    except Exception as e:
+                        log.warning("%s FAIL %s: %s", tag, url, e)
+
+        log.info("%s Done — %d articles collected.", tag, len(articles))
         return articles
 
 
@@ -324,15 +360,16 @@ class BasePlaywrightScraperConnector(BaseScraperConnector):
     """
     Abstract base for Playwright-based scraper connectors.
 
-    Inherits all shared utilities from BaseScraperConnector.
-    Overrides get_articles() to manage a single browser session across the
-    entire scrape — required for sites with bot protection (e.g. Akamai).
+    Inherits the crawl loop and all shared utilities from BaseScraperConnector.
+    Overrides the fetching hooks so one Chromium instance and one Page are
+    reused across the entire scrape — required for sites with bot protection
+    (e.g. Akamai).
 
     Subclasses must still implement:
-        index_urls, extract_article_links(), parse_article(), _extract_article_id()
+        extract_article_links(), parse_article(), _extract_article_id()
 
     Subclasses may override:
-        _pw_wait_after_load   — ms to wait after domcontentloaded on index pages
+        _pw_wait_after_load    — ms to wait after domcontentloaded on index pages
         _pw_wait_after_article — ms to wait after domcontentloaded on article pages
     """
 
@@ -340,101 +377,33 @@ class BasePlaywrightScraperConnector(BaseScraperConnector):
     _pw_wait_after_article: int = 1500   # ms — article pages
 
     def fetch_html(self, url: str) -> str:
-        """Not used in Playwright scrapers — browser manages fetching in get_articles()."""
+        """Not used in Playwright scrapers — the browser page fetches inside the crawl."""
         raise NotImplementedError(
             "Playwright scrapers fetch pages inside get_articles(). "
             "Do not call fetch_html() directly."
         )
 
-    def get_articles(
-        self,
-        max_articles: Optional[int] = None,
-        since: Optional[datetime] = None,
-        max_consecutive_old: int = 3,
-        **kwargs,
-    ) -> list[Article]:
-        """
-        Crawl all index_urls via a single Playwright browser session.
-
-        Opens one Chromium instance, reuses one Page object throughout,
-        then closes everything cleanly.
-        """
-        from playwright.sync_api import sync_playwright, Browser, Page
-
-        tag = f"[{self.SOURCE or self.__class__.__name__}]"
-        articles: list[Article] = []
-        seen_urls: set[str] = set()
+    @contextmanager
+    def _fetch_context(self):
+        """Own one Chromium instance and one Page for the whole crawl."""
+        from playwright.sync_api import sync_playwright
 
         with sync_playwright() as pw:
-            browser: Browser = pw.chromium.launch(headless=True)
-            page: Page = browser.new_page()
+            browser = pw.chromium.launch(headless=True)
+            self._page = browser.new_page()
+            try:
+                yield
+            finally:
+                self._page = None
+                browser.close()
 
-            for index_url in self.index_urls:
-                if max_articles and len(articles) >= max_articles:
-                    break
-                try:
-                    page.goto(index_url, wait_until="domcontentloaded", timeout=30_000)
-                    page.wait_for_timeout(self._pw_wait_after_load)
-                    html = page.content()
-                except Exception as e:
-                    print(f"{tag} Failed to fetch index {index_url}: {e}")
-                    continue
+    def _goto(self, url: str, wait_ms: int) -> str:
+        self._page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        self._page.wait_for_timeout(wait_ms)
+        return self._page.content()
 
-                links = self.extract_article_links(html, index_url)
-                print(f"{tag} {len(links)} links found on {index_url}")
+    def _fetch_index_html(self, url: str) -> str:
+        return self._goto(url, self._pw_wait_after_load)
 
-                consecutive_old = 0
-
-                for url in links:
-                    if max_articles and len(articles) >= max_articles:
-                        break
-                    if url in seen_urls:
-                        continue
-                    seen_urls.add(url)
-
-                    if hasattr(self, "_crawl_delay"):
-                        time.sleep(self._crawl_delay)
-
-                    try:
-                        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                        page.wait_for_timeout(self._pw_wait_after_article)
-                        article_html = page.content()
-                        article = self.parse_article(article_html, url)
-
-                        if not article.title or not article.content:
-                            print(f"{tag} SKIP (no title/content): {url}")
-                            continue
-
-                        if since is not None:
-                            pub = article.published_at
-                            if pub.tzinfo is None:
-                                pub = pub.replace(tzinfo=timezone.utc)
-                            if pub < since:
-                                consecutive_old += 1
-                                print(
-                                    f"{tag} OLD ({consecutive_old}/{max_consecutive_old})"
-                                    f"  {pub.strftime('%H:%M')}  {article.title[:60]}"
-                                )
-                                if consecutive_old >= max_consecutive_old:
-                                    print(
-                                        f"{tag} {max_consecutive_old} consecutive old"
-                                        f" articles — stopping section."
-                                    )
-                                    break
-                                continue
-
-                        consecutive_old = 0
-                        articles.append(article)
-                        pub_str = (
-                            article.published_at.strftime("%H:%M")
-                            if article.published_at else "?"
-                        )
-                        print(f"{tag} OK   {pub_str}  {article.title[:60]}")
-
-                    except Exception as e:
-                        print(f"{tag} FAIL {url}: {e}")
-
-            browser.close()
-
-        print(f"{tag} Done — {len(articles)} articles collected.")
-        return articles
+    def _fetch_article_html(self, url: str) -> str:
+        return self._goto(url, self._pw_wait_after_article)
