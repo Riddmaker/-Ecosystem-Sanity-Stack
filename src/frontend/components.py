@@ -1,0 +1,374 @@
+"""
+HTML-building components for the dashboard.
+
+Each render_* function returns an HTML string for st.markdown(...,
+unsafe_allow_html=True); the small helpers above them are pure functions.
+"""
+
+import re
+
+# CSS variable shorthands shared across components
+T1  = "var(--text-primary)"
+T2  = "var(--text-secondary)"
+T3  = "var(--text-muted)"
+BD  = "var(--border)"
+BDL = "var(--border-light)"
+
+FIELD_LABELS = {
+    "curiosity_gap":          "Curiosity Gap",
+    "conflict_staging":       "Conflict Staging",
+    "emotional_inflation":    "Emotional Inflation",
+    "narrative_exploitation": "Narrative Exploitation",
+}
+
+SUB_SCORES = [
+    ("curiosity_gap",          "Curiosity Gap"),
+    ("conflict_staging",       "Conflict Staging"),
+    ("emotional_inflation",    "Emotional Inflation"),
+    ("narrative_exploitation", "Narrative Exploitation"),
+]
+
+
+def extract_verdict(reasoning: str) -> str:
+    """For v8 reasoning (contains →): show only the verdict after the arrow.
+    Falls back to full text for older versions that don't use this format."""
+    if "→" in reasoning:
+        return reasoning.split("→", 1)[1].strip()
+    return reasoning
+
+
+def format_reasoning(text: str) -> str:
+    """Bold field name labels and add line breaks between reasoning sections."""
+    for key, label in FIELD_LABELS.items():
+        text = text.replace(f"{key}-", f"<strong>{label}:</strong> ")
+        text = text.replace(key, label)
+    # Insert line break only before field label headings (avoids false splits on dates like "28. Februar")
+    text = re.sub(r'(\S)\s+(?=<strong>)', r'\1<br><br>', text)
+    return text
+
+
+def ragebait_color(score: float) -> str:
+    """
+    Green → yellow → red pastel gradient for scores 0–10.
+    Anchors match the Chakra-UI 500-level palette so score 10
+    renders as the existing --ragebait red (#E53E3E).
+      1  → #38A169  (green-500)
+      5  → #D69E2E  (yellow-600)
+      10 → #E53E3E  (red-500)
+    """
+    t = max(0.0, min(10.0, float(score))) / 10.0
+    GREEN  = (0x38, 0xA1, 0x69)
+    YELLOW = (0xD6, 0x9E, 0x2E)
+    RED    = (0xE5, 0x3E, 0x3E)
+    if t <= 0.5:
+        s = t / 0.5
+        a, b_ = GREEN, YELLOW
+    else:
+        s = (t - 0.5) / 0.5
+        a, b_ = YELLOW, RED
+    r = int(a[0] + (b_[0] - a[0]) * s)
+    g = int(a[1] + (b_[1] - a[1]) * s)
+    b = int(a[2] + (b_[2] - a[2]) * s)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def score_bar(val: float, color: str) -> str:
+    pct = min(100, (val / 10) * 100)
+    return (f'<div class="score-bar-wrap">'
+            f'<div class="score-bar-fill" style="width:{pct:.0f}%;background:{color};"></div>'
+            f'</div>')
+
+
+def render_section_label(batch_stats: dict) -> str:
+    if batch_stats["total"] > 0:
+        batch_time = batch_stats["batch_time"]
+        batch_time_str = batch_time.strftime("%H:%M UTC") if batch_time else "—"
+        label = (
+            f'Höchster Ragebait-Score im letzten Batch &nbsp;·&nbsp; '
+            f'{batch_stats["total"]} Artikel gescreent ({batch_time_str})'
+            f'&nbsp;·&nbsp; Aktualisierung stündlich'
+        )
+    else:
+        label = "Höchster Ragebait-Score"
+    return f'<div class="section-label">{label}</div>'
+
+
+def render_highlight(latest: dict) -> str:
+    """The main highlight card: score | title + sub-score bars | reasoning."""
+    d  = latest["details"]
+    ts = latest["scraped_at"].strftime("%d.%m.%Y %H:%M UTC") if latest["scraped_at"] else "—"
+
+    rb_detail = d.get("ragebait", {})
+    rb_score  = rb_detail.get("score", latest.get("ragebait_score") or 0)
+    RB        = ragebait_color(rb_score)
+
+    # Shared cell styles
+    C1 = f'padding:1rem 1rem 1rem 0;border-right:1px solid {BD};text-align:center;'
+    C2 = f'padding:1rem 1.4rem;border-right:1px solid {BD};'
+    C3 = f'padding:1rem 0 1rem 1.4rem;'
+    ROW_BORDER = f'border-bottom:1px solid {BDL};'
+
+    # Compact cell styles for the title row (less vertical padding)
+    C1h = f'padding:0.5rem 1rem 0.5rem 0;border-right:1px solid {BD};text-align:center;'
+    C2h = f'padding:0.5rem 1.4rem;border-right:1px solid {BD};'
+    C3h = f'padding:0.5rem 0 0.5rem 1.4rem;'
+
+    # ── Row 1: title | Begründung header
+    row1 = (
+        f'<div style="{C1h}{ROW_BORDER}">'
+        f'<div style="font-size:0.68rem;font-weight:600;color:{T3};'
+        f'text-transform:uppercase;letter-spacing:0.06em;">Scores</div>'
+        f'</div>'
+        f'<div style="{C2h}{ROW_BORDER}">'
+        f'<div class="highlight-title">{latest["title"]}</div>'
+        f'</div>'
+        f'<div style="{C3h}{ROW_BORDER}">'
+        f'<div style="font-size:0.68rem;font-weight:600;color:{T3};'
+        f'text-transform:uppercase;letter-spacing:0.06em;">Begründung</div>'
+        f'</div>'
+    )
+
+    # ── Row 2: the Ragebait dimension (score, bars, reasoning)
+    dim_data  = d.get("ragebait", {})
+    big_score = dim_data.get("score", latest.get("ragebait_score") or 0)
+
+    # Sub-score bars
+    bars_html = (
+        f'<div style="font-size:0.68rem;font-weight:600;color:{RB};'
+        f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Ragebait Index</div>'
+    )
+    for sk, sl in SUB_SCORES:
+        sv  = dim_data.get(sk, 0)
+        sc  = ragebait_color(sv)
+        bars_html += (
+            f'<div class="sub-row">'
+            f'<span class="sub-label">{sl}</span>'
+            f'<span class="sub-score-val" style="color:{sc};">{sv:.1f}</span>'
+            f'</div>'
+            + score_bar(sv, sc)
+        )
+
+    # Reasoning: per-sub-score blocks (v7) or combined fallback (v6)
+    has_per_sub = any(dim_data.get(f"{sk}_reasoning") for sk, _ in SUB_SCORES)
+    if has_per_sub:
+        reasoning_html = ""
+        for sk, sl in SUB_SCORES:
+            sv = dim_data.get(sk, 0)
+            sc = ragebait_color(sv)
+            sr = dim_data.get(f"{sk}_reasoning", "")
+            if sr:
+                reasoning_html += (
+                    f'<div style="margin-bottom:0.75rem;">'
+                    f'<div style="font-size:var(--fs-meta);font-weight:600;color:{sc};'
+                    f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">{sl}</div>'
+                    f'<div class="reasoning-text">{extract_verdict(sr)}</div>'
+                    f'</div>'
+                )
+    else:
+        reasoning_html = (
+            f'<div class="reasoning-text">'
+            f'{format_reasoning(dim_data.get("reasoning", "—"))}'
+            f'</div>'
+        )
+
+    # No bottom border here — the meta footer row follows directly
+    dim_row = (
+        f'<div style="{C1}vertical-align:top;">'
+        f'<div style="font-size:0.68rem;font-weight:600;color:{RB};'
+        f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">'
+        f'Ragebait</div>'
+        f'<div style="font-size:3rem;font-weight:600;line-height:1;color:{RB};">'
+        f'{big_score:.1f}</div>'
+        f'</div>'
+        f'<div style="{C2}">{bars_html}</div>'
+        f'<div style="{C3}">{reasoning_html}</div>'
+    )
+
+    # ── Row 3: meta footer
+    row3 = (
+        f'<div style="{C1}display:flex;flex-direction:column;justify-content:center;padding-top:0.8rem;padding-bottom:0.8rem;">'
+        f'<div><span class="tag">{latest["category"]}</span>'
+        f'<span class="tag">{latest["word_count"]}w</span></div>'
+        f'<div style="font-size:0.65rem;color:{T3};margin-top:0.4rem;">{ts}</div>'
+        f'</div>'
+        f'<div style="{C2}display:flex;align-items:center;padding-top:0.8rem;padding-bottom:0.8rem;"></div>'
+        f'<div style="{C3}display:flex;align-items:center;padding-top:0.8rem;padding-bottom:0.8rem;font-size:0.68rem;color:{T3};">'
+        f'{latest["score_model"]} &nbsp;·&nbsp; {latest["score_version"]}'
+        f'&nbsp;&nbsp;<a href="{latest["url"]}" target="_blank" '
+        f'style="color:{RB};text-decoration:none;font-weight:500;">Artikel öffnen ↗</a>'
+        f'</div>'
+    )
+
+    return (
+        f'<div class="highlight-wrap">'
+        f'<div style="display:grid;grid-template-columns:110px 1fr 1fr;gap:0;">'
+        f'{row1}{dim_row}{row3}'
+        f'</div></div>'
+    )
+
+
+def render_reader_service(reader_service: dict) -> str:
+    """The 'Kern des Themas' card. Returns "" if all cells are empty."""
+    facts  = reader_service.get("facts", "").strip()
+    stake  = reader_service.get("stake", "").strip()
+    action = reader_service.get("action", "").strip()
+
+    facts_cell = (
+        f'<div class="reader-service-cell">'
+        f'<div class="reader-service-cell-label">Was bekannt ist</div>'
+        f'{facts}'
+        f'</div>'
+    ) if facts else ""
+
+    stake_cell = (
+        f'<div class="reader-service-cell">'
+        f'<div class="reader-service-cell-label">Was auf dem Spiel steht</div>'
+        f'{stake}'
+        f'</div>'
+    ) if stake else ""
+
+    action_cell = (
+        f'<div class="reader-service-cell" style="grid-column:1/-1;'
+        f'border-top:1px solid var(--border);border-right:none;">'
+        f'<div class="reader-service-cell-label">Was du tun kannst</div>'
+        f'{action}'
+        f'</div>'
+    ) if action else ""
+
+    if not (facts_cell or stake_cell or action_cell):
+        return ""
+
+    return (
+        f'<div class="reader-service-wrap">'
+        f'<div class="reader-service-header">Kern des Themas</div>'
+        f'<div class="reader-service-body">{facts_cell}{stake_cell}{action_cell}</div>'
+        f'</div>'
+    )
+
+
+def render_empty_state() -> str:
+    return (
+        f'<div style="color:{T3};text-align:center;padding:2.5rem;font-size:0.85rem;">'
+        f'Kein Ragebait-Kandidat gefunden — Pipeline ausführen oder Threshold prüfen.</div>'
+    )
+
+
+HEADER_HTML = """
+<div style="margin-bottom:0.15rem;">
+  <span style="font-size:1.4rem;font-weight:600;color:var(--text-primary);">Media Sanity Dashboard</span>
+</div>
+<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.1rem;">
+  Misst fabrizierte Emotion in Schweizer Nachrichtenmedien — stündlich aktualisiert.
+</div>
+<div style="font-size:0.65rem;color:var(--text-muted);">
+  KI-generiert · keine menschliche Prüfung ·
+  <a href="https://github.com/Riddmaker/-Ecosystem-Sanity-Stack/issues" target="_blank"
+     style="color:var(--text-muted);text-decoration:underline;">Feedback via GitHub</a>
+</div>
+"""
+
+EXPLAINER_MD = """
+Dieses Werkzeug misst, ob der emotionale Gehalt eines Artikels aus den berichteten Fakten
+entsteht — oder ob Hinweise auf sprachliche und strukturelle Muster vorliegen, die Klicks
+und Empörung fördern können. Kein Urteil über Medien oder Journalist:innen, sondern ein
+Instrument zur eigenen Orientierung.
+
+**Ragebait Index (0–10, höher = schlechter):** Vier Dimensionen, je ein Sprachmodell-Aufruf.
+
+**Curiosity Gap** (Blom & Hansen 2015) — Hält die Headline Kerninformationen zurück, um den Klick zu erzwingen?
+**Conflict Staging** (Rony et al. 2017) — Konstruiert die Redaktion einen Gruppenkonflikt ohne Faktenbasis?
+**Emotional Inflation** (Potthast et al. 2016) — Überwiegen emotionale Behauptungen gegenüber verifizierbaren Fakten?
+**Narrative Exploitation** (Brady et al. 2017) — Wird eine Geschichte primär aufgegriffen, um Empörung auszulösen — ohne Handlungsbezug?
+
+Fabrizierte Emotion hat messbare Kosten: Sie verzerrt die Wahrnehmung der Welt, baut eine falsche
+Dringlichkeit auf und erschöpft mit der Zeit die Fähigkeit, auf echte Missstände zu reagieren
+(McLaughlin et al. 2022, Crockett 2017). Ziel des Projekts ist ein bewussterer Medienkonsum.
+
+*Sarkasmus und Satire werden gelegentlich falsch eingestuft. Code und Prompts sind Open Source (Apache 2.0).*
+"""
+
+RESEARCH_FOOTER_HTML = """
+<div class="research-footer">
+
+  <div style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;
+              letter-spacing:0.06em;margin-bottom:0.6rem;">Wissenschaftliche Grundlagen</div>
+
+  <div style="font-size:0.67rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;
+              letter-spacing:0.05em;margin-bottom:0.3rem;">Scoring-Grundlage</div>
+
+  <a href="https://doi.org/10.1080/17512786.2014.976939" target="_blank">
+    Blom &amp; Hansen (2015) — Click bait: Forward-reference as lure in online news headlines
+  </a>
+  <span style="color:var(--text-muted);">
+    — Headlines die Informationen absichtlich zurückhalten um Klicks zu erzwingen (Forward-reference).
+    Grundlage für <em>Curiosity Gap</em>.
+  </span><br>
+
+  <a href="https://doi.org/10.1145/3091478.3091487" target="_blank">
+    Rony, Hassan &amp; Yousuf (2017) — Diving Deep into Clickbaits
+  </a>
+  <span style="color:var(--text-muted);">
+    — Engagement Farming durch Controversy Manufacturing: Gruppen werden ohne sachliche Basis
+    gegeneinander aufgestellt um Kommentare zu ernten.
+    Grundlage für <em>Conflict Staging</em>.
+  </span><br>
+
+  <a href="https://doi.org/10.1007/978-3-319-30671-1_72" target="_blank">
+    Potthast et al. (2016) — Clickbait Detection
+  </a>
+  <span style="color:var(--text-muted);">
+    — Clickbait korreliert mit hohem Verhältnis emotionaler Adjektive zu verifizierbaren Fakten.
+    Grundlage für <em>Emotional Inflation</em>.
+  </span><br>
+
+  <a href="https://doi.org/10.1073/pnas.1618923114" target="_blank">
+    Brady et al. (2017) — Emotion shapes the diffusion of moralized content in social networks
+  </a>
+  <span style="color:var(--text-muted);">
+    — Moralisch-emotionale Sprache erhöht die Verbreitung von Inhalten in sozialen Netzwerken messbar.
+    Geschichten werden primär deshalb aufgegriffen, um moralische Empörung auszulösen — unabhängig
+    vom Informationswert. Grundlage für <em>Narrative Exploitation</em>.
+  </span>
+
+  <div style="font-size:0.67rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;
+              letter-spacing:0.05em;margin:0.7rem 0 0.3rem 0;">Warum das wichtig ist</div>
+
+  <a href="https://doi.org/10.1080/10410236.2022.2106086" target="_blank">
+    McLaughlin, Gotlieb &amp; Mills (2022) — Problematic News Consumption
+  </a>
+  <span style="color:var(--text-muted);">
+    — Problematischer Nachrichtenkonsum korreliert mit Angst, Depression und Schlafstörungen.
+    Mit der Zeit müssen wir immer mehr Energie aufwenden, um nicht noch mehr zu konsumieren.
+  </span><br>
+
+  <a href="https://doi.org/10.1002/smi.916" target="_blank">
+    McNaughton-Cassill &amp; Smith (2002) — Optimism Gap
+  </a>
+  <span style="color:var(--text-muted);">
+    — Nachrichtenkonsument:innen überschätzen nationale Bedrohungen systematisch gegenüber
+    der eigenen Lebenserfahrung. Warum emotionale Inflation die Weltwahrnehmung verzerrt.
+  </span><br>
+
+  <a href="https://doi.org/10.1038/s41562-017-0213-3" target="_blank">
+    Crockett (2017) — Moral Outrage in the Digital Age
+  </a>
+  <span style="color:var(--text-muted);">
+    — Near-zero cost of online outrage führt zu Habituation und Moral Licensing:
+    Online-Empörung ersetzt echtes Handeln. Warum fabrizierte Empörung moralische
+    Handlungskapazität aufbraucht.
+  </span>
+
+  <div style="margin-top:1rem;padding-top:0.8rem;border-top:1px solid var(--border-light);
+              font-size:0.68rem;color:var(--text-muted);line-height:1.7;">
+    <strong style="color:var(--text-secondary);">Zur Einordnung:</strong>
+    Alle Studien sind peer-reviewed und in ihren Fachgebieten etabliert. Methodisch bewegen sie
+    sich mehrheitlich auf der Ebene von Beobachtungs- und Querschnittsstudien — geeignet für
+    Muster- und Korrelationsaussagen, nicht für Kausalaussagen. Crockett (2017) ist ein
+    theoretisches Synthesepapier (<em>Perspective</em>), keine Primärstudie. McLaughlin et al.
+    (2022) wurde 2024 repliziert, was die Befunde stärkt. Eine übergreifende Metaanalyse
+    die speziell fabrizierte Emotion in Nachrichten und ihre psychologischen Kosten verbindet,
+    liegt bisher nicht vor — das Themenfeld ist zu jung und zu spezifisch.
+  </div>
+
+</div>
+"""

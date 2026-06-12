@@ -1,0 +1,92 @@
+"""
+Data access for the dashboard — DB queries and highlight selection.
+"""
+
+from datetime import timedelta
+
+import streamlit as st
+from sqlalchemy import desc, func, select
+
+from src import config
+from src.db.connection import get_session
+from src.db.models import ArticleModel
+
+# Generous upper bound on "scored articles worth considering for the
+# highlight" — pick_highlight() only looks 24h back from the latest score,
+# and the pipeline fully scores at most a handful of articles per hour.
+MAX_SCORED_ARTICLES = 500
+
+
+@st.cache_data(ttl=60)
+def load_articles() -> list[dict]:
+    with get_session() as session:
+        rows = list(session.scalars(
+            select(ArticleModel)
+            .where(ArticleModel.ragebait_score.isnot(None))
+            .order_by(desc(ArticleModel.score_computed_at))
+            .limit(MAX_SCORED_ARTICLES)
+        ))
+        return [
+            {
+                "id":               str(r.id),
+                "title":            r.title or "",
+                "url":              r.url,
+                "category":         r.category or "—",
+                "word_count":       r.word_count or 0,
+                "scraped_at":       r.scraped_at,
+                "score_computed_at": r.score_computed_at,
+                "ragebait_score":   r.ragebait_score,
+                "pre_score":        r.pre_score,
+                "details":          r.score_details or {},
+                "judge_reasoning":  (r.score_details or {}).get("judge", {}).get("reasoning"),
+                "judge_selected":   (r.score_details or {}).get("judge", {}).get("selected", False),
+                "score_model":      r.score_model or "—",
+                "score_version":    r.score_version or "—",
+            }
+            for r in rows
+        ]
+
+
+@st.cache_data(ttl=60)
+def load_batch_stats() -> dict:
+    with get_session() as session:
+        latest_scored = session.scalar(
+            select(func.max(ArticleModel.pre_score_at))
+        )
+        if not latest_scored:
+            return {"total": 0, "batch_time": None}
+        window_start = latest_scored - timedelta(minutes=config.BATCH_WINDOW_MINUTES)
+        total = session.scalar(
+            select(func.count()).select_from(ArticleModel).where(
+                ArticleModel.pre_score_at >= window_start,
+            )
+        )
+        return {"total": total or 0, "batch_time": latest_scored}
+
+
+def pick_highlight(articles: list[dict]) -> dict | None:
+    """
+    Pick the most notable article to highlight.
+    Relies exclusively on the judge LLM call:
+    1. Judge-selected article in the latest batch (10-min window).
+    2. Fallback: most recent judge-selected article in the last 24h.
+    """
+    scored = [a for a in articles if a["score_computed_at"] is not None]
+    if not scored:
+        return None
+
+    latest_ts = max(a["score_computed_at"] for a in scored)
+    batch    = [a for a in scored if a["score_computed_at"] >= latest_ts - timedelta(minutes=10)]
+    last_24h = [a for a in scored if a["score_computed_at"] >= latest_ts - timedelta(hours=24)]
+
+    # 1. Judge pick in latest batch
+    judge_batch = [a for a in batch if a.get("judge_selected") and a.get("judge_reasoning")]
+    if judge_batch:
+        return judge_batch[0]
+
+    # 2. Judge pick from last 24h
+    judge_24h = [a for a in last_24h if a.get("judge_selected") and a.get("judge_reasoning")]
+    if judge_24h:
+        return max(judge_24h, key=lambda a: a["score_computed_at"])
+
+    return None
