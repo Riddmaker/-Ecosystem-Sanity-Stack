@@ -17,7 +17,6 @@ Dependencies:
 """
 
 import re
-from datetime import datetime, timezone
 from typing import Optional
 
 from bs4 import BeautifulSoup
@@ -27,19 +26,6 @@ from src.connectors.abstract.scraper_connector import BasePlaywrightScraperConne
 
 
 BASE_URL = "https://www.blick.ch"
-
-DEFAULT_SECTIONS = [
-    "/schweiz/",
-    "/ausland/",
-    "/politik/",
-    "/wirtschaft/",
-    "/gesellschaft/",
-    "/sport/",
-    "/digital/",
-    "/life/",
-]
-
-CRAWL_DELAY = 1.5
 
 # Article URLs: end with -id<digits>.html
 ARTICLE_URL_RE = re.compile(r"-id\d{6,12}\.html$")
@@ -65,18 +51,18 @@ class BlickScraperConnector(BasePlaywrightScraperConnector):
 
     SOURCE = "blick.ch"
     LANGUAGE = "de"
-
-    def __init__(
-        self,
-        sections: Optional[list[str]] = None,
-        crawl_delay: float = CRAWL_DELAY,
-    ):
-        self._sections = sections or DEFAULT_SECTIONS
-        self._crawl_delay = crawl_delay
-
-    @property
-    def index_urls(self) -> list[str]:
-        return [BASE_URL + s for s in self._sections]
+    BASE_URL = BASE_URL
+    CRAWL_DELAY = 1.5
+    DEFAULT_SECTIONS = [
+        "/schweiz/",
+        "/ausland/",
+        "/politik/",
+        "/wirtschaft/",
+        "/gesellschaft/",
+        "/sport/",
+        "/digital/",
+        "/life/",
+    ]
 
     # ------------------------------------------------------------------
     # Index page

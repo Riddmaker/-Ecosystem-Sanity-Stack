@@ -27,20 +27,6 @@ from src.connectors.abstract.scraper_connector import BaseScraperConnector
 
 BASE_URL = "https://www.nau.ch"
 
-DEFAULT_SECTIONS = [
-    "/news",
-    "/news/ausland",
-    "/news/europa",
-    "/news/wirtschaft",
-    "/news/digital",
-    "/news/forschung",
-    "/politik",
-    "/sport",
-    "/people",
-]
-
-CRAWL_DELAY = 1.0
-
 # Article URLs: path ends with a slug followed by a numeric ID (7–8 digits)
 ARTICLE_URL_RE = re.compile(r"/[a-z0-9-]+-\d{7,}$")
 
@@ -59,19 +45,19 @@ class NauScraperConnector(BaseScraperConnector):
 
     SOURCE = "nau.ch"
     LANGUAGE = "de"
-
-    def __init__(
-        self,
-        sections: Optional[list[str]] = None,
-        crawl_delay: float = CRAWL_DELAY,
-    ):
-        self._sections = sections or DEFAULT_SECTIONS
-        self._crawl_delay = crawl_delay
-        self._session = self._init_session()
-
-    @property
-    def index_urls(self) -> list[str]:
-        return [BASE_URL + s for s in self._sections]
+    BASE_URL = BASE_URL
+    CRAWL_DELAY = 1.0
+    DEFAULT_SECTIONS = [
+        "/news",
+        "/news/ausland",
+        "/news/europa",
+        "/news/wirtschaft",
+        "/news/digital",
+        "/news/forschung",
+        "/politik",
+        "/sport",
+        "/people",
+    ]
 
     # ------------------------------------------------------------------
     # Index page

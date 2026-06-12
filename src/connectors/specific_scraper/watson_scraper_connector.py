@@ -29,17 +29,6 @@ from src.connectors.abstract.scraper_connector import BaseScraperConnector
 
 BASE_URL = "https://www.watson.ch"
 
-DEFAULT_SECTIONS = [
-    "/schweiz/",
-    "/international/",
-    "/wirtschaft/",
-    "/sport/",
-    "/wissen/",
-    "/digital/",
-]
-
-CRAWL_DELAY = 1.0
-
 # Article URLs: last path segment starts with a numeric ID followed by a dash
 ARTICLE_URL_RE = re.compile(r"/\d{6,}-[a-z]")
 
@@ -58,19 +47,16 @@ class WatsonScraperConnector(BaseScraperConnector):
 
     SOURCE = "watson.ch"
     LANGUAGE = "de"
-
-    def __init__(
-        self,
-        sections: Optional[list[str]] = None,
-        crawl_delay: float = CRAWL_DELAY,
-    ):
-        self._sections = sections or DEFAULT_SECTIONS
-        self._crawl_delay = crawl_delay
-        self._session = self._init_session()
-
-    @property
-    def index_urls(self) -> list[str]:
-        return [BASE_URL + s for s in self._sections]
+    BASE_URL = BASE_URL
+    CRAWL_DELAY = 1.0
+    DEFAULT_SECTIONS = [
+        "/schweiz/",
+        "/international/",
+        "/wirtschaft/",
+        "/sport/",
+        "/wissen/",
+        "/digital/",
+    ]
 
     # ------------------------------------------------------------------
     # Index page

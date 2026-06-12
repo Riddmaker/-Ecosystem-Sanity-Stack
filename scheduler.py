@@ -15,24 +15,23 @@ load_dotenv()
 import logging
 import time
 import schedule
-from datetime import datetime, timezone
 
+from src import config
 from src.pipeline import run
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [scheduler] %(message)s",
+    format="%(asctime)s [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-log = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # silence per-request logs
+log = logging.getLogger("scheduler")
 
 
 def job():
     log.info("Starting pipeline run...")
     try:
-        # hours=1.5 — fetch articles published in the last 90 min (overlap guards
-        # against articles that publish slightly before the previous run window)
-        run(hours=1.5)
+        run(hours=config.SCHEDULE_LOOKBACK_HOURS)
     except Exception as e:
         log.error(f"Pipeline run failed: {e}", exc_info=True)
     next_run = schedule.next_run()
