@@ -23,7 +23,7 @@ class ArticleModel(Base):
     )
 
     # Source identity — primary dedup key
-    source: Mapped[str | None] = mapped_column(String(100), nullable=False)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
     source_article_id: Mapped[str | None] = mapped_column(Text)   # e.g. "103543041"
 
     # URL — best-effort match fallback, not a hard unique constraint

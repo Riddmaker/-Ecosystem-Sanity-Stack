@@ -11,7 +11,7 @@ Run:
 """
 
 import pytest
-from conftest import skip_no_db
+from tests.conftest import skip_no_db
 
 
 @pytest.mark.integration

@@ -2,9 +2,12 @@
 Base class for all RSS-based news connectors.
 """
 
+import logging
 from abc import ABC, abstractmethod
 
 from src.connectors.abstract.models import Article
+
+log = logging.getLogger(__name__)
 
 
 class BaseRSSConnector(ABC):
@@ -44,5 +47,5 @@ class BaseRSSConnector(ABC):
                     articles.append(self.parse_entry(entry))
                 except Exception as e:
                     # log and continue — one bad entry shouldn't abort the run
-                    print(f"[RSSConnector] Failed to parse entry: {e}")
+                    log.warning("[RSSConnector] Failed to parse entry: %s", e)
         return articles
