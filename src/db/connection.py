@@ -28,6 +28,11 @@ def create_tables(engine) -> None:
     Base.metadata.create_all(engine)
 
 
+def init_db() -> None:
+    """Ensure all tables exist on the shared engine used by get_session()."""
+    create_tables(_get_engine())
+
+
 # Module-level singletons — initialised on first use
 _engine = None
 _SessionFactory = None
