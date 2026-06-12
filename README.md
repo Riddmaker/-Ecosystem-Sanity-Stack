@@ -100,10 +100,19 @@ Ships with four Swiss German news scrapers as reference implementations:
 |---|---|---|
 | [20min.ch](https://www.20min.ch) | `twenty_minutes_scraper_connector.py` | HTTP + JSON-LD |
 | [watson.ch](https://www.watson.ch) | `watson_scraper_connector.py` | HTTP + JSON-LD |
-| [blick.ch](https://www.blick.ch) | `blick_scraper_connector.py` | Playwright (bot-protected) |
+| [blick.ch](https://www.blick.ch) | `blick_scraper_connector.py` | Playwright (bot-protected) — **disabled in prod**, see below |
 | [nau.ch](https://www.nau.ch) | `nau_scraper_connector.py` | HTTP + JSON-LD |
 
 All scrapers parse JSON-LD `NewsArticle` blocks with trafilatura as fallback.
+
+> **Blick is disabled by default in production.** Its Akamai bot protection returns
+> `403 Access Denied` to datacenter IP ranges (Infomaniak/Jelastic) across the whole
+> `blick.ch` domain — pages, sitemaps and RSS alike — so it cannot be scraped from the
+> server. It still works from a residential IP, so it remains in the connector registry
+> and can be run explicitly (`run_pipeline.py --sources blick`) from a local machine.
+> A default run uses `DEFAULT_SOURCES` (all sources minus `config.DISABLED_SOURCES`).
+> To collect Blick legitimately at scale, use a licensed source (e.g. Swissdox@LiRI, the
+> Swiss media archive) or request IP whitelisting from Ringier.
 
 ---
 

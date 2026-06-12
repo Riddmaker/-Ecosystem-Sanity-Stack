@@ -215,3 +215,8 @@ __marimo__/
 
 #Debugging
 screenshot*.png
+
+# Ops probe (local Jelastic API helper) + its scratch dumps — never commit
+.jelastic_probe.py
+.envinfo.json
+.loglist.json
