@@ -22,26 +22,25 @@ genügt dieser Strukturbeweis für einen Score von 6–7 — \
 auch wenn der Ton sachlich und die Sprache nüchtern ist. \
 Die Manipulationsabsicht liegt in der Auswahl und Rahmung, nicht in der Adjektivdichte.
 
-SCORE 0–10:
-  0–3  = Authentisch und informativ. Emotion (wenn vorhanden) durch Fakten gedeckt.
-  4–6  = Gemischt — Zuspitzung oder Clickbait-Elemente vorhanden, aber Informationswert bleibt.
-  7–10 = Klarer Ragebait oder Clickbait. Primär auf Reaktion optimiert, nicht auf Information.
+ANALYSE-SCHRITT (intern ausführen, im Reasoning dokumentieren):
+Prüfe die vier Signale mit J/N — jedes J erhöht den Score:
+  CG (Curiosity Gap):        Macht die Headline ein inhaltliches Versprechen, das im Textanfang nicht aufgelöst wird?
+  CS (Conflict Staging):     Werden Gruppen gegeneinander inszeniert («Community gespalten», «Was meint ihr?») ohne Faktenbasis?
+  EI (Emotional Inflation):  Gibt es redaktionelle Emotionswörter ohne direkten Faktenbeleg? (Zitate ausschliessen)
+  NE (Narrative Exploitation): Bösewicht + Opfer + kein Handlungsbezug für Lesende?
 
-SIGNALE FÜR HOHE SCORES:
-  — Curiosity Gap: Headline stellt Frage oder verspricht Auflösung die im Textanfang fehlt
-  — Conflict Staging: Gruppen/Personen gegeneinander inszeniert ohne Faktenbasis
-  — Emotional Inflation: Starke Adjektive («skandalös», «schockierend») ohne Faktenbeleg
-  — Narrative Exploitation: Persönliche Fremdgeschichte mit Bösewicht/Opfer/Ungerechtigkeits-Rahmen \
-— geografisch oder zeitlich irrelevant für Lesende, kein Handlungsbezug, \
-primärer Zweck ist emotionaler Zustandswechsel (Empörung, Mitleid, Entrüstung). \
-Erkennbar an: klarer Bösewicht, sympathisches Opfer, moralisch aufgeladener Ausgang \
-der Lesende zur emotionalen Reaktion einlädt ohne dass sie handeln könnten.
+SCORE-LOGIK:
+  0 Signale aktiv               → 0–2  (authentisch und informativ)
+  1 Signal (CG / CS / EI)       → 3–4  (leichte Zuspitzung)
+  1 Signal (NE allein, klar)    → 6–7  (Ausnahme: Bösewicht/Opfer-Struktur genügt auch ohne Adjektive)
+  2 Signale                     → 5–6  (gemischt, Informationswert bleibt)
+  3 Signale                     → 7–8  (klarer Ragebait)
+  4 Signale                     → 8–10 (primär auf Reaktion optimiert)
 
 NICHT ALS RAGEBAIT WERTEN:
-  — Schwere Ereignisse (Krieg, Katastrophe, Kriminalität) mit sachlicher Berichterstattung
-  — Kriminalberichterstattung mit regionalem Bezug oder Relevanz für Lesende
-  — Partizipationsjournalismus: Leseraufruf nach substantiellem Inhalt
-  — Gesellschaftliche Debatte mit echtem Informationswert
+  — Schwere Ereignisse (Krieg, Katastrophe) mit sachlicher Berichterstattung → CG/EI/CS jeweils Nein
+  — Kriminalberichterstattung mit regionalem Bezug → NE Nein (Handlungsbezug vorhanden)
+  — Partizipationsjournalismus nach substantiellem Inhalt → CS Nein
 
 GEGENPROBE (intern): Formuliere zuerst die wohlwollendste journalistische Interpretation. \
 Score hoch nur wenn diese klar widerlegt wird.
@@ -53,27 +52,20 @@ Titel: «Kantonspolizei Bern: Bewaffneter Raubüberfall auf Tankstelle — Täte
 Text: «Am Montagabend überfielen zwei Unbekannte eine Tankstelle in Köniz BE. \
 Die Täter bedrohten den Kassierer mit einer Schusswaffe und flüchteten mit Bargeld. \
 Die Kantonspolizei Bern sucht Zeugen. Niemand wurde verletzt.»
-Score: 1.0 — Sachlicher Regionalbericht, lokale Handlungsrelevanz, kein Engagement-Farming.
+→ {"score": 1.0, "reasoning": "CG=Nein, CS=Nein, EI=Nein, NE=Nein. 0 Signale. → Score 1: Sachlicher Regionalbericht, lokale Handlungsrelevanz."}
 
 [MITTEL – Score ~5]
 Titel: «Swiss Made oder Marketing? Luxus-Pyjamas bei Swiss stammen aus China»
-Text: «Swiss-First-Class-Gäste erhalten Pyjamas der Marke Zimmerli of Switzerland — \
-die in China produziert werden. Swiss wirbt mit Schweizer Qualität. \
-Ein Leser wurde stutzig: «Etikettenschwindel oder cleveres Marketing?» \
-Swiss: «Entscheidend ist die Qualität, nicht der Produktionsort.»»
-Score: 5.0 — Curiosity Gap im Titel («Swiss Made oder Marketing?»); sachlicher Kern vorhanden, \
-aber «Etikettenschwindel»-Framing zielt auf Empörung über Täuschung.
+Text: «Ein Leser wurde stutzig: «Etikettenschwindel oder cleveres Marketing?» Swiss: «Entscheidend ist die Qualität.»»
+→ {"score": 5.0, "reasoning": "CG=Ja (Titelversprechen teilweise aufgelöst), CS=Nein, EI=Ja («Etikettenschwindel»-Framing), NE=Nein. 2 Signale. → Score 5: «Swiss Made oder Marketing?» zielt auf Empörung, Kernfakt aber kommuniziert."}
 
 [HOCH – Score ~7 — Narrative Exploitation: sachlicher Ton, aber Struktur ist Ragebait]
 Titel: «Lehrerin ohrfeigt Schüler in Australien — und behält trotzdem ihren Job»
-Text: «Eine Grundschullehrerin in Queensland hat einen 8-Jährigen vor der Klasse geohrfeigt. \
-Die Schulbehörde entschied: zwei Wochen Suspension, kein Entlassungsverfahren. \
-Die Mutter: «Mein Sohn hat Albträume.» Elternverbände zeigen sich empört.»
-Score: 7.0 — Geografisch irrelevant für Lesende; klarer Bösewicht (Lehrerin), klares Opfer (Kind), \
-moralisch aufgeladener Ausgang («behält trotzdem ihren Job») als Empörungshook — \
-OBWOHL der Ton sachlich ist. Die Manipulationsabsicht liegt in der Auswahl und Rahmung.
+Text: «Die Schulbehörde entschied: zwei Wochen Suspension. Die Mutter: «Mein Sohn hat Albträume.»»
+→ {"score": 7.0, "reasoning": "CG=Nein, CS=Nein, EI=Nein (Ton sachlich), NE=Ja (Australien, Bösewicht/Opfer, «behält trotzdem den Job»). 1 starkes Signal. → Score 7: NE-Struktur trotz sachlichem Ton — Manipulation liegt in Auswahl und Rahmung."}
 
-Gib zurück: {"score": <float 0-10>, "reasoning": "<1 Satz: Urteil + konkretes Textzitat in «» als Beleg>"}"""
+OUTPUT FORMAT — Reasoning enthält Signale-Check + Urteil:
+{"score": <float 0-10>, "reasoning": "<CG=J/N, CS=J/N, EI=J/N, NE=J/N. N Signale. → Score X: konkretes Textzitat in «» als Beleg.>"}"""
 
 PRE_SCREEN_USER = """TITEL: {title}
 

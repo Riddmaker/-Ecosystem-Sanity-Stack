@@ -1,6 +1,6 @@
 """
 Hourly scheduler — runs the pipeline once immediately on startup,
-then every 60 minutes.
+then at the top of every hour (:00).
 
 Usage:
   .venv/Scripts/python scheduler.py

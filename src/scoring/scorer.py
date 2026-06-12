@@ -27,12 +27,16 @@ from src.scoring.prompts import (
     CONFLICT_STAGING_SYSTEM,
     EMOTIONAL_INFLATION_SYSTEM,
     NARRATIVE_EXPLOITATION_SYSTEM,
+    READER_SERVICE_SYSTEM,
+    READER_SERVICE_USER,
     JUDGE_SYSTEM,
     JUDGE_USER,
+    GATE_SYSTEM,
+    GATE_USER,
 )
 
 SCORE_MODEL_ID    = "mistral-large-latest"
-SCORE_VERSION     = "v7"
+SCORE_VERSION     = "v9"
 RANDOM_SEED       = 42
 TEMPERATURE       = 0.0
 MAX_CONTENT_CHARS = 3000
@@ -111,6 +115,47 @@ class MediaScorer:
             reasoning=reasoning,
         )
 
+    def gate_article(self, title: str, content: str) -> dict:
+        """
+        Qualitative gate: does the editorial treatment inflate emotional weight
+        beyond what the facts alone warrant?
+
+        Returns {"pass": bool, "reasoning": str}
+        pass=True  → article deserves full scoring
+        pass=False → emotional weight comes from the facts, not editorial choices
+        """
+        user_msg = GATE_USER.format(title=title, content=content[:MAX_CONTENT_CHARS])
+        raw = self._query(GATE_SYSTEM, user_msg)
+        passed = bool(raw.get("pass", True))
+        return {"pass": passed, "reasoning": raw.get("reasoning", "")}
+
+    def generate_reader_service(self, title: str, content: str, score_result: "ScoreResult") -> dict:
+        """
+        Generate a factual extract for the judge-picked article.
+        Only called when ragebait_score >= 5.0.
+
+        Returns {"facts": str, "stake": str, "action": str}
+        """
+        rb = score_result.ragebait
+        user_msg = READER_SERVICE_USER.format(
+            title=title,
+            content=content[:MAX_CONTENT_CHARS],
+            ragebait_score=score_result.ragebait_score,
+            curiosity_gap=rb.curiosity_gap,
+            conflict_staging=rb.conflict_staging,
+            emotional_inflation=rb.emotional_inflation,
+            narrative_exploitation=rb.narrative_exploitation,
+        )
+        raw = self._query(READER_SERVICE_SYSTEM, user_msg)
+        action = raw.get("action", "")
+        if isinstance(action, dict):
+            action = " ".join(v for v in action.values() if isinstance(v, str))
+        return {
+            "facts":  raw.get("facts", ""),
+            "stake":  raw.get("stake", ""),
+            "action": action,
+        }
+
     def judge_articles(self, scored: list[dict]) -> dict:
         """
         Qualitative winner selection across already-scored candidates.
@@ -169,7 +214,10 @@ class MediaScorer:
                     temperature=TEMPERATURE,
                     random_seed=RANDOM_SEED,
                 )
-                return json.loads(response.choices[0].message.content)
+                raw = json.loads(response.choices[0].message.content)
+                if isinstance(raw, list) and raw:
+                    raw = raw[0]
+                return raw
             except Exception as e:
                 if "429" in str(e) and attempt < _retries - 1:
                     backoff = 10 * (attempt + 1)  # 10s, 20s, 30s

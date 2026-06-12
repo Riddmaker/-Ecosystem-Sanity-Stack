@@ -136,6 +136,26 @@ def run(
             to_prescreen = repo.get_unprescored(urls=new_or_updated_urls)
 
             for article in to_prescreen:
+                # Skip paywalled / teaser-only articles — scoring truncated marketing
+                # copy inflates every dimension artificially and causes hallucinations.
+                # Blick marks paid content with "(B+)" in the title; the word-count
+                # guard catches teasers from any source.
+                word_count = article.word_count or len((article.content or "").split())
+                is_paywalled = (
+                    "(B+)" in (article.title or "")
+                    or "(b+)" in (article.title or "").lower()
+                    or word_count < 100
+                )
+                if is_paywalled:
+                    # Mark as screened so it doesn't requeue every run
+                    article.pre_score         = 0.0
+                    article.pre_score_reasoning = "SKIP: paywalled or teaser-only content"
+                    article.pre_score_model   = "none"
+                    article.pre_score_at      = datetime.now(timezone.utc)
+                    session.flush()
+                    print(f"      [paywall] {article.title[:60]}")
+                    continue
+
                 try:
                     result = pre_scorer.score(
                         title=article.title or "", content=article.content or ""
@@ -149,21 +169,44 @@ def run(
                 except Exception as e:
                     print(f"      [ERR] {article.title[:60]}: {e}")
 
-    # ── 4. Full-score top 5 + judge ──────────────────────────────
-    print("\n[4/4] Full-scoring top 5 candidates with Mistral Large...")
+    # ── 4. Gate → full-score → judge ─────────────────────────────
+    print("\n[4/4] Qualitative gate + full-scoring with Mistral Large...")
 
     fully_scored = False
     with get_session() as session:
         repo = ArticleRepository(session)
-        candidates = repo.get_top_prescored_unscored(n=5)
+        gate_candidates = repo.get_prescored_above_threshold(min_score=3.0, limit=12)
 
-        if not candidates:
-            print("      No candidates found (all already scored or none above threshold).")
+        if not gate_candidates:
+            print("      No candidates above pre-score threshold.")
         else:
             scorer = MediaScorer()
+
+            # ── Gate: filter for genuine editorial inflation ──────
+            print(f"      Running qualitative gate on {len(gate_candidates)} candidates...")
+            candidates = []
+            for gc in gate_candidates:
+                try:
+                    gate = scorer.gate_article(
+                        title=gc.title or "", content=gc.content or ""
+                    )
+                    verdict = "PASS" if gate["pass"] else "SKIP"
+                    print(f"      [{verdict}] pre={gc.pre_score:.1f}  \"{gc.title[:55]}\"")
+                    print(f"             {gate['reasoning'][:100]}")
+                    if gate["pass"]:
+                        candidates.append(gc)
+                except Exception as e:
+                    print(f"      [GATE ERR] {gc.title[:55]}: {e}")
+                    candidates.append(gc)  # on gate error, include to be safe
+
+            if not candidates:
+                print("      Gate filtered all candidates — no genuine editorial inflation detected today.")
+            else:
+                print(f"      {len(candidates)} article(s) passed the gate.")
+
             scored = []
             for candidate in candidates:
-                print(f"      → pre_score={candidate.pre_score:.1f}  \"{candidate.title[:60]}\"")
+                print(f"      → Scoring: \"{candidate.title[:60]}\"")
                 try:
                     result = scorer.score(
                         title=candidate.title or "", content=candidate.content or ""
@@ -211,6 +254,27 @@ def run(
                             },
                         }
                         session.flush()
+
+                    # Reader service: factual extract for every judge-picked article
+                    # Skip if content is too thin (paywalled teaser) — hallucination risk
+                    content_words = len((winner_article.content or "").split())
+                    if content_words < 80:
+                        print(f"      Skipping reader service — content too short ({content_words} words, likely paywalled teaser)")
+                    elif True:
+                        try:
+                            print(f"      Generating reader service (ragebait={winner_result.ragebait_score:.1f})...")
+                            reader_service = scorer.generate_reader_service(
+                                title=winner_article.title or "",
+                                content=winner_article.content or "",
+                                score_result=winner_result,
+                            )
+                            winner_article.score_details = {
+                                **winner_article.score_details,
+                                "reader_service": reader_service,
+                            }
+                            session.flush()
+                        except Exception as e:
+                            print(f"      Reader service ERROR: {e}")
                 except Exception as e:
                     print(f"      Judge ERROR: {e} — falling back to highest ragebait_score")
                     idx = max(range(len(scored)), key=lambda i: scored[i][1].ragebait_score)

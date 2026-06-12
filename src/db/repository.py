@@ -145,3 +145,17 @@ class ArticleRepository:
             .order_by(desc(ArticleModel.pre_score))
             .limit(n)
         ))
+
+    def get_prescored_above_threshold(self, min_score: float = 3.0, limit: int = 12) -> list[ArticleModel]:
+        """Return articles above pre_score threshold that haven't been fully scored yet."""
+        from sqlalchemy import desc
+        return list(self.session.scalars(
+            select(ArticleModel)
+            .where(
+                ArticleModel.pre_score.isnot(None),
+                ArticleModel.pre_score >= min_score,
+                ArticleModel.ragebait_score.is_(None),
+            )
+            .order_by(desc(ArticleModel.pre_score))
+            .limit(limit)
+        ))

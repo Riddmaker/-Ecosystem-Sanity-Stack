@@ -19,7 +19,7 @@ from src.scoring.pre_prompts import PRE_SCREEN_SYSTEM, PRE_SCREEN_USER
 from src.scoring.throttle import small_limiter
 
 PRE_SCORE_MODEL_ID = "mistral-small-latest"
-PRE_SCORE_VERSION  = "v5-pre"
+PRE_SCORE_VERSION  = "v6-pre"
 MAX_SNIPPET_WORDS  = 250   # title + lead + ~2 paragraphs; structural signals peak here
 
 
