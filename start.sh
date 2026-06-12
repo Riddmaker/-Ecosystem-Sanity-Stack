@@ -18,7 +18,10 @@ echo "[start.sh] PostgreSQL is ready."
 
 python -u scheduler.py &
 
+# Serve on 8080 — the port Jelastic's load balancer routes the environment
+# URL to (JELASTIC_PRIORITY_PORTS=8080). Locally, docker-compose maps host
+# 8501 → container 8080 so http://localhost:8501 still works in dev.
 exec streamlit run src/frontend/app.py \
-    --server.port=8501 \
+    --server.port=8080 \
     --server.headless=true \
     --server.address=0.0.0.0

@@ -26,10 +26,8 @@ ENV PYTHONPATH=/app
 # Keep package lists fresh so Jelastic can install its tooling (ssh, cron etc.) on first start
 RUN apt-get update
 
-# Publish the Streamlit port so the Jelastic load balancer maps the environment
-# URL to it. Without this the image declares no web port, so the public
-# *.jcloud.ik-server.com address refuses to connect (Streamlit listens on 8501,
-# while Jelastic otherwise defaults to looking for a web app on 8080).
-EXPOSE 8501
+# Publish the web port. Jelastic routes the environment URL to 8080
+# (JELASTIC_PRIORITY_PORTS=8080), so start.sh serves Streamlit there.
+EXPOSE 8080
 
 CMD ["./start.sh"]

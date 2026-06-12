@@ -160,7 +160,8 @@ DATABASE_URL=postgresql://sanity:sanity@localhost:5432/ecosystem_sanity
 docker compose up -d
 ```
 
-Starts three containers: `db` (PostgreSQL 16), `frontend` (Streamlit on port 8501), `scheduler` (hourly pipeline).
+Starts three containers: `db` (PostgreSQL 16), `frontend` (Streamlit, served on container
+port 8080 and mapped to host 8501), `scheduler` (hourly pipeline).
 
 Open [http://localhost:8501](http://localhost:8501).
 
@@ -284,9 +285,12 @@ POSTGRES_PORT=5432
 
 The PostgreSQL hostname, user, and password are shown in the Jelastic DB node details panel.
 
-**4. Open port 8501**
+**4. Web port**
 
-In the Jelastic environment → Endpoints or Public IP settings, map external traffic to internal port `8501` (Streamlit).
+Streamlit serves on port `8080`, which Jelastic's load balancer routes the environment
+URL to automatically (`JELASTIC_PRIORITY_PORTS=8080`) — no manual endpoint mapping needed.
+The dashboard is reachable at the environment's `https://<env>.jcloud.ik-server.com` URL
+(bind a custom domain + SSL under Settings if desired).
 
 **5. Add the webhook secret to GitHub**
 
