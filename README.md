@@ -281,13 +281,24 @@ In the Jelastic environment → Endpoints or Public IP settings, map external tr
 
 **5. Add the webhook secret to GitHub**
 
-In the Jelastic environment settings, find the **Auto-deploy webhook URL**. Copy it and add it to GitHub:
+The deploy workflow triggers the redeploy by calling the Jelastic REST API. Generate a
+personal **access token** in the Jelastic console (account menu → Settings → Access
+Tokens, environment scope, short expiry), then assemble the redeploy URL:
 
-Repository → Settings → Secrets and variables → Actions → New secret:
+```
+https://app.<your-jelastic-host>/1.0/environment/control/rest/redeploycontainersbygroup?envName=<env-name>&nodeGroup=cp&tag=latest&token=<access-token>
+```
+
+For Infomaniak the host is `app.jpc.infomaniak.com`, and `nodeGroup=cp` is the Docker
+app-server node defined in `jelastic.jps`. Add the assembled URL as a repository secret
+(Settings → Secrets and variables → Actions → New secret):
 
 | Secret | Value |
 |---|---|
-| `JELASTIC_WEBHOOK_PROD` | Your Jelastic auto-redeploy webhook URL |
+| `JELASTIC_WEBHOOK_PROD` | The full `redeploycontainersbygroup` REST URL above (it embeds the access token) |
+
+The token is sensitive — it lives only in the GitHub secret, never in the repo. Rotate
+it from the Jelastic console if it ever leaks.
 
 ### Deploying
 
@@ -318,34 +329,45 @@ Then push the data to the production DB, or just let the scheduler fill it natur
 
 ### Option A — Build a scraper connector
 
-Create a file in `src/connectors/specific_scraper/` implementing `BaseScraperConnector`:
+Create a file in `src/connectors/specific_scraper/` extending `BaseScraperConnector`
+(or `BasePlaywrightScraperConnector` for bot-protected sites that need a real browser).
+Declare the crawl targets as class attributes and implement three methods — the shared
+crawl loop, JSON-LD parsing, rate limiting and dedup are all inherited:
 
 ```python
+from typing import Optional
 from src.connectors.abstract.scraper_connector import BaseScraperConnector
 from src.connectors.abstract.models import Article
 
 class MyNewsConnector(BaseScraperConnector):
     SOURCE = "mynews.com"
     LANGUAGE = "en"
+    BASE_URL = "https://mynews.com"
+    DEFAULT_SECTIONS = ["/", "/politics", "/world"]   # each joined onto BASE_URL
+    CRAWL_DELAY = 1.0                                  # seconds between article fetches
 
-    @property
-    def index_urls(self) -> list[str]:
-        return ["https://mynews.com/", "https://mynews.com/politics/"]
-
-    def extract_article_links(self, html: str, base_url: str) -> list[str]:
-        # Return list of article URLs found on the index page
+    def extract_article_links(self, html: str, index_url: str) -> list[str]:
+        # Return absolute article URLs found on an index/section page
         ...
 
-    def parse_article(self, url: str, html: str) -> Article | None:
-        # Parse a single article page, return Article or None
+    def parse_article(self, html: str, url: str) -> Article:
+        # Parse a single article page into an Article
         ...
 
-    def _extract_article_id(self, url: str) -> str | None:
-        # Return a stable unique ID for this article (for dedup)
+    @staticmethod
+    def _extract_article_id(url: str) -> Optional[str]:
+        # Return a stable unique ID from the URL (for dedup)
         ...
 ```
 
-Then add it to `src/pipeline.py` alongside the existing sources.
+Then register it in the `CONNECTORS` dict in `src/pipeline.py`:
+
+```python
+CONNECTORS = {
+    # ...existing sources...
+    "mynews": MyNewsConnector,
+}
+```
 
 ### Option B — RSS feed connector
 
@@ -415,7 +437,11 @@ ecosystem-sanity-stack/
 │   └── migrate_v4_to_v5.py
 ├── Dockerfile
 ├── docker-compose.yml           # local dev: db + frontend + scheduler + worker
-├── docker-compose.prod.yml      # production overrides (VPS deployment)
+├── docker-compose.prod.yml      # production overrides
+├── jelastic.jps.example         # Jelastic IaC — recreates the full prod environment
+├── .github/workflows/
+│   └── deploy-prod.yml          # CI/CD: build image → ghcr.io → Jelastic redeploy
+├── .env.example                 # environment-variable template
 └── requirements.txt
 ```
 
