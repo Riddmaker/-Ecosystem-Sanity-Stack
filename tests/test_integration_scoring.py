@@ -13,7 +13,7 @@ Run:
 """
 
 import pytest
-from conftest import skip_no_api_key
+from tests.conftest import skip_no_api_key
 
 # Short, real-feeling German article fixture — no network needed
 SAMPLE_TITLE = "Bundesrat erhöht Steuern für Reiche – Widerstand aus der Wirtschaft"

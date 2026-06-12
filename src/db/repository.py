@@ -13,7 +13,7 @@ Upsert logic:
 import hashlib
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from src.connectors.abstract.models import Article
@@ -116,16 +116,6 @@ class ArticleRepository:
         """Upsert a list of articles. Returns {url: content_changed} map."""
         return {a.url: self.upsert(a)[1] for a in articles}
 
-    def get_unscored(self) -> list[ArticleModel]:
-        """Return all articles that need a (re-)score."""
-        return list(
-            self.session.scalars(
-                select(ArticleModel).where(
-                    ArticleModel.ragebait_score.is_(None)
-                )
-            )
-        )
-
     def get_unprescored(self, urls: list[str] | None = None) -> list[ArticleModel]:
         """Return articles that haven't been pre-scored yet, optionally filtered by URL list."""
         q = select(ArticleModel).where(ArticleModel.pre_score.is_(None))
@@ -133,22 +123,8 @@ class ArticleRepository:
             q = q.where(ArticleModel.url.in_(urls))
         return list(self.session.scalars(q))
 
-    def get_top_prescored_unscored(self, n: int = 3) -> list[ArticleModel]:
-        """Return top N articles by pre_score that haven't been fully scored yet."""
-        from sqlalchemy import desc
-        return list(self.session.scalars(
-            select(ArticleModel)
-            .where(
-                ArticleModel.pre_score.isnot(None),
-                ArticleModel.ragebait_score.is_(None),
-            )
-            .order_by(desc(ArticleModel.pre_score))
-            .limit(n)
-        ))
-
     def get_prescored_above_threshold(self, min_score: float = 3.0, limit: int = 12) -> list[ArticleModel]:
         """Return articles above pre_score threshold that haven't been fully scored yet."""
-        from sqlalchemy import desc
         return list(self.session.scalars(
             select(ArticleModel)
             .where(
