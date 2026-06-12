@@ -33,30 +33,33 @@ AUFGABE — CURIOSITY GAP (0–10):
 Basis: Blom & Hansen (2015) — «Forward-reference as lure in online news headlines»
 KERNFRAGE: Hält die Headline absichtlich Kerninformationen zurück, die ein redlich berichtender Titel liefern würde — um den Klick zu erzwingen?
 
-SPEZIALREGEL ZITAT-GAP: Stammt die Informationslücke aus einer zitierten Aussage («X sagt: ‹Das steckt dahinter›»), liegt die Lücke bei der zitierten Person, nicht bei der Redaktion → Score niedrig. Nur hoch wenn die Redaktion selbst aktiv Information zurückhält.
-
-SKALA:
-  0–2  = Headline liefert alle Kernfakten direkt. Kein Forward-Reference.
-  3–5  = Leichte Lücke oder Neugier-Verpackung, Kernaussage aber kommuniziert.
-  6–8  = Klarer Gap: Frage aufgebaut, die der Text erst spät oder unvollständig auflöst.
-  9–10 = Maximaler Bait: Alle Kernfakten fehlen («Das steckt dahinter», «Du wirst nicht glauben»).
+ANALYSE-SCHRITT (vor Score ausführen, im Reasoning dokumentieren):
+0. NEUTRALER BASELINE: Wie würde eine SDA-Kurzmeldung über dieselben Fakten titeln? Ist das vorliegende Headline-Format (offene Frage, laufender Fall, Fortsetzung) durch die Natur des Themas begründet — oder erzwingt es den Klick, obwohl ein sachlicher Titel möglich wäre?
+1. VERSPRECHEN ZÄHLEN: Welche Kernfakten (Wer? Was genau? Warum? Ergebnis?) deutet die Headline an, ohne sie direkt zu benennen? Liste jeden impliziten Inhaltspunkt.
+2. AUFLÖSUNG PRÜFEN: Wie viele dieser Versprechen löst der erste Textabsatz direkt auf?
+3. SCORE-LOGIK aus Auflösungs-Ratio:
+     Alle aufgelöst              → 0–2
+     Die Hälfte aufgelöst        → 4–5
+     1 von 3 oder mehr           → 6–7
+     Keines aufgelöst            → 8–10
+   SPEZIALREGEL ZITAT-GAP: Stammt eine Lücke aus einer Zitat-Aussage («X sagt: ‹Das steckt dahinter›»), liegt sie bei der zitierten Person — nicht der Redaktion. Score -2 für solche Lücken.
 
 BEISPIELE:
 
-[Score ~1 — Alle Fakten direkt]
+[Score ~1 — Alle Fakten direkt geliefert]
 Titel: «Kantonspolizei Bern: Bewaffneter Raubüberfall auf Tankstelle — Täter flüchtig»
-→ {"score": 1.0, "reasoning": "Headline nennt Ort, Ereignistyp und Täterstatuts direkt — kein Forward-Reference, keine konstruierte Informationslücke."}
+→ {"score": 1.0, "reasoning": "Versprechen: 0 (Ort, Ereignistyp, Täterstatuts direkt in Headline). Auflösung: 0/0 nötig. → Score 1: Kein Forward-Reference."}
 
-[Score ~4 — Leichte Neugier-Verpackung]
+[Score ~4 — Leichte Lücke, Kernaussage geliefert]
 Titel: «Swiss Made oder Marketing? Luxus-Pyjamas bei Swiss stammen aus China»
-→ {"score": 4.0, "reasoning": "«Swiss Made oder Marketing?» erzeugt eine Lücke, liefert die Antwort aber bereits im Untertitel («stammen aus China») — moderater Curiosity Gap, Kernaussage kommuniziert."}
+→ {"score": 4.0, "reasoning": "Versprechen: 1 (Swiss Made oder nicht?). Auflösung: 1/1 — Antwort bereits im Untertitel («stammen aus China»). → Score 4: Neugier-Verpackung, aber Kernaussage sofort kommuniziert."}
 
-[Score ~8 — Klarer Bait, alle Kernfakten fehlen]
+[Score ~8 — Alle Kernfakten fehlen]
 Titel: «Er lag im Spitalbett — alles gelogen: Bund warnt vor Masche»
-→ {"score": 8.0, "reasoning": "Wer lag im Spitalbett? Was war gelogen? Was ist die Masche? Alle Kernfakten fehlen — die Headline konstruiert Spannung ohne Information und zwingt zum Klick."}
+→ {"score": 8.0, "reasoning": "Versprechen: 3 (Wer? Was war gelogen? Welche Masche?). Auflösung: 0/3 im ersten Absatz. → Score 8: «alles gelogen» und «Bund warnt vor Masche» erzwingen den Klick — kein Kernfakt ohne Durchlesen."}
 
-OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<1-2 Sätze: Urteil + konkretes Textzitat in «» als Beleg>"}"""
+OUTPUT FORMAT — Reasoning enthält Analyse-Trace + Urteil:
+{"score": <float 0-10>, "reasoning": "<Baseline: [SDA-Titel wäre ... / Format gerechtfertigt weil ...]. Versprechen: N. Auflösung: M/N. → Score X: konkretes Textzitat in «» als Beleg.>"}"""
 
 
 # ---------------------------------------------------------------------------
@@ -67,35 +70,41 @@ CONFLICT_STAGING_SYSTEM = SYSTEM_PREAMBLE + """
 
 AUFGABE — CONFLICT STAGING (0–10):
 Basis: Rony, Hassan & Yousuf (2017) — «Diving Deep into Clickbaits: Cases, Characteristics and Solutions»
-KERNFRAGE: Konstruiert die Redaktion aktiv einen Gruppenkonflikt oder eine Gegnerschaft — ohne ausreichende Faktenbasis — um Kommentare und Empörung zu ernten?
+KERNFRAGE: Konstruiert die Redaktion aktiv einen Gruppenkonflikt ohne ausreichende Faktenbasis — um Kommentare und Empörung zu ernten?
 
-SPEZIALREGEL ECHTER KONFLIKT: Reale, dokumentierte Konflikte (Gerichtsverfahren, politische Abstimmungen, Kriege, Untersuchungen mit benannten Parteien und Beweisen) sind KEIN Staging. Die Redaktion dokumentiert diesen Konflikt — sie konstruiert ihn nicht. Score nur hoch, wenn die Redaktion aktiv Lager bildet («Community gespalten», «Was meint ihr?») bei dünner oder fehlender Faktenbasis.
+ANALYSE-SCHRITT — Checkliste (jeden Marker mit J/N bewerten, im Reasoning dokumentieren):
+0. NEUTRALER BASELINE: Gibt es einen realen, dokumentierten Konflikt im Artikel (Ermittlung, Gerichtsfall, Behördenhandeln, politische Abstimmung)? Wenn ja: dokumentiert die Redaktion ihn nur — oder inszeniert sie ihn aktiv durch Lagerbildung und dünne Faktenbasis? Reale dokumentierte Konflikte begrenzen den Score unabhängig von den Checklisten-Markern.
+A) LAGERBILDUNG: Werden Gruppen oder Seiten explizit gegeneinander gestellt? («A vs. B», «Community gespalten», «die einen / die anderen»)
+B) ENGAGEMENT-FARMING: Gibt es einen direkten Aufruf zur Stellungnahme? («Was meint ihr?», «Seid ihr dafür oder dagegen?»)
+C) DÜNNE FAKTENBASIS: Fehlen benannte Parteien, Belege oder Dokumente — ist der Konflikt nur behauptet?
+D) REDAKTIONELLE KONSTRUKTION: Hat die Redaktion den Konflikt aktiv gerahmt (statt dokumentiert)?
 
-SPEZIALREGEL MEINUNGSJOURNALISMUS: Kolumnen und Kommentare dürfen eine klare Seite einnehmen. Das ist ihre Funktion. Score nur hoch, wenn die Redaktion Gruppen ohne sachliche Grundlage gegeneinander inszeniert — nicht wenn ein Kommentator eine faktisch begründete Position stark vertritt.
-
-SKALA:
-  0–2  = Konflikt emergiert aus Fakten. Redaktion dokumentiert neutral.
-  3–5  = Sachliche Konfliktdarstellung. Leichte Zuspitzung, aber faktisch gedeckt.
-  6–8  = Redaktion konstruiert aktiv «A vs. B» bei dünner Faktenbasis. Polarisierung ohne Substanz.
-  9–10 = Reines Konflikt-Theater: Lager ohne Faktengrundlage, explizites Engagement-Farming («Was meint ihr?»).
+SCORE-LOGIK:
+  Realer dokumentierter Konflikt (Gericht, Krieg, Abstimmung) → max. 2, unabhängig von Markern
+  Meinungsjournalismus mit faktischer Basis                   → max. 4, auch bei A+D
+  0 Marker aktiv                                              → 0–2
+  1 Marker                                                    → 2–4
+  2 Marker                                                    → 4–6
+  3 Marker                                                    → 7–8
+  4 Marker (A+B+C+D)                                          → 9–10
 
 BEISPIELE:
 
 [Score ~1 — Realer dokumentierter Konflikt]
 Titel: «Liveblog Iran-Krieg: Eskalation nach Raketenbeschuss — 340 Tote»
-→ {"score": 1.0, "reasoning": "Realer geopolitischer Konflikt mit verifizierten Zahlen («340 Tote», «UN ruft zu Waffenstillstand auf») — Redaktion dokumentiert, inszeniert nicht."}
+→ {"score": 1.0, "reasoning": "A=Nein, B=Nein, C=Nein (340 Tote, UN-Aufruf als Beleg), D=Nein. 0 Marker. → Score 1: Realer geopolitischer Konflikt mit verifizierten Zahlen — Redaktion dokumentiert."}
 
 [Score ~3 — Erfahrungssammlung ohne Lagerbildung]
 Titel: «Konflikte mit Schwiegereltern: Leser erzählen von ihren Erfahrungen»
-→ {"score": 3.0, "reasoning": "Erfahrungsberichte zu einem realen Thema — die Redaktion konstruiert kein «Lager A vs. Lager B», sammelt nur persönliche Berichte ohne Engagement-Farming-Signal."}
+→ {"score": 3.0, "reasoning": "A=Nein (kein A-vs-B-Frame), B=Ja (Leseraufruf), C=Nein (reales Thema), D=Nein. 1 Marker (B). → Score 3: Partizipationsformat, kein Conflict Staging."}
 
 [Score ~9 — Reines Conflict Staging]
 Titel: «Reisen mit Baby: Eltern trotzen Kritik — die Community ist gespalten»
 Text: «Was meint ihr?»
-→ {"score": 9.0, "reasoning": "«Die Community ist gespalten» und «Was meint ihr?» konstruieren explizit einen Gruppenkonflikt (Eltern vs. Mitreisende) ohne sachliche Grundlage — reines Engagement-Farming."}
+→ {"score": 9.0, "reasoning": "A=Ja («Community ist gespalten»), B=Ja («Was meint ihr?»), C=Ja (keine Faktenbasis), D=Ja (Redaktion konstruiert Lager). 4 Marker aktiv. → Score 9: Lehrbuch-Conflict-Staging."}
 
-OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<1-2 Sätze: Urteil + konkretes Textzitat in «» als Beleg>"}"""
+OUTPUT FORMAT — Reasoning enthält Checkliste + Urteil:
+{"score": <float 0-10>, "reasoning": "<Baseline: [realer Konflikt: ja/nein, Art]. A=J/N, B=J/N, C=J/N, D=J/N. N Marker aktiv. → Score X: konkretes Textzitat in «» als Beleg.>"}"""
 
 
 # ---------------------------------------------------------------------------
@@ -106,37 +115,38 @@ EMOTIONAL_INFLATION_SYSTEM = SYSTEM_PREAMBLE + """
 
 AUFGABE — EMOTIONAL INFLATION (0–10):
 Basis: Potthast et al. (2016) — «Clickbait Detection»
-KERNFRAGE: Wie hoch ist das Verhältnis von redaktionellen emotionalen Behauptungen zu verifizierbaren Fakten, Zahlen oder Quellen?
+KERNFRAGE: Wie hoch ist das Verhältnis von redaktionellen Emotionswörtern ohne Faktendeckung zu solchen mit Faktendeckung?
 
-SPEZIALREGEL ZITAT: Emotionale Sprache in direkten oder indirekten Zitaten wird NICHT bestraft. Zitate zählen als Faktenbeleg für die Aussage der zitierten Person. Bewerte ausschliesslich die redaktionelle Rahmung.
-
-SPEZIALREGEL MEINUNGSJOURNALISMUS/KOLUMNE: Polemischer Stil (Ironie, Sarkasmus, starke Werturteile) ist das legitime Handwerkszeug von Kolumnisten. Entscheidend ist das VERHÄLTNIS: Stehen die emotionalen Formulierungen auf einer faktischen Grundlage (Zahlen, Belege, dokumentierte Ereignisse), ist der Score moderat — auch wenn die Sprache laut ist. Nur hoch wenn emotionale Behauptungen ohne jede faktische Deckung stehen.
-
-SKALA:
-  0–2  = Emotionale Aussagen vollständig durch Fakten/Zahlen/Quellen gedeckt.
-  3–5  = Mehrheitlich gedeckt, vereinzelte redaktionelle Übertreibungen.
-  6–8  = Signifikante ungedeckte redaktionelle Gefühlsbehauptungen. Emotion ersetzt teilweise Fakten.
-  9–10 = Reine Adjektiv-Emotion ohne Faktenbeleg («skandalös», «unglaublich», «erschütternd») dominiert.
+ANALYSE-SCHRITT (vor Score ausführen, im Reasoning dokumentieren):
+0. NEUTRALER BASELINE: Welche emotionale Grundlast bringen die Fakten selbst mit? Würde eine nüchterne Reuters-Meldung über dieselben Ereignisse ähnlich schwer wirken — allein durch die Natur des Sachverhalts (Unfall, Verbrechen, Tod, Katastrophe)? Bewerte in den folgenden Schritten nur Emotionswörter, die über diese faktisch bedingte Grundlast hinausgehen.
+1. EMOTIONSWÖRTER LISTEN: Alle redaktionellen Emotionswörter im Fliesstext — Adjektive, Adverbien, Bewertungen. Zitate und Kolumnisten-Rhetorik auf faktischer Basis AUSSCHLIESSEN. Format: ['Wort1', 'Wort2'…]
+2. JEDES TAGGEN: Hat es direkt im Text einen faktischen Anker? (benannte Quelle / Zahl / dokumentiertes Ereignis) → J (gedeckt) oder N (ungedeckt)
+3. RATIO BERECHNEN: ungedeckte / total gefundene Emotionswörter → Score-Logik:
+     Keine Emotionswörter             → 0–1
+     Ratio 0–20% ungedeckt            → 1–3
+     Ratio 20–50% ungedeckt           → 3–6
+     Ratio 50–80% ungedeckt           → 6–8
+     Ratio >80% oder reine Adjektiv-Emphase → 8–10
 
 BEISPIELE:
 
 [Score ~1 — Vollständig faktisch gedeckt]
 Titel: «Liveblog Iran-Krieg: Eskalation — 340 Tote»
 Text: «Das Gesundheitsministerium meldet 340 Tote. UN ruft zu Waffenstillstand auf.»
-→ {"score": 1.5, "reasoning": "Alle Aussagen durch benannte Quellen belegt («Das Gesundheitsministerium meldet», «UN ruft auf») — kein redaktioneller Emotionsüberschuss."}
+→ {"score": 1.5, "reasoning": "Emotionswörter: [] — keine redaktionellen Emotionswörter im Fliesstext. Ratio: 0% ungedeckt. → Score 1.5: Alle Aussagen durch benannte Quellen belegt."}
 
 [Score ~5 — Gedeckt mit stilistischer Zuspitzung]
 Titel: «Lars Weibel im Fall Patrick Fischer — Untersuchung ist Papiertiger»
-Text (Kolumne): «Potz Donner! Da wird aufgeräumt! [...] Wer denkt, die Untersuchung sei ein Persilschein, ist nicht einmal ein Schelm. [dokumentierter Interessenkonflikt der Anwaltskanzlei]»
-→ {"score": 5.0, "reasoning": "«Potz Donner!» und «Papiertiger» sind starke Kolumnisten-Rhetorik, aber der Kern (Interessenkonflikt NKF als Verbands-Hauskanzlei) ist faktisch belegt — Stil laut, Substanz vorhanden."}
+Text (Kolumne): «Potz Donner! [...] dokumentierter Interessenkonflikt der Anwaltskanzlei»
+→ {"score": 5.0, "reasoning": "Emotionswörter: ['Papiertiger']. Gedeckt: 1/1 — Interessenkonflikt NKF ist dokumentiert. Ratio: 0% ungedeckt. → Score 5: Kolumnisten-Rhetorik laut, Substanz faktisch gedeckt — Stil-Zuschlag für Meinungsstück."}
 
 [Score ~9 — Emotion ohne Faktendeckung]
 Titel: «Reisen mit Baby: Community ist gespalten»
-Text: «Immer mehr Eltern reisen mit Kleinstkindern. Das ist respektlos. Was meint ihr?»
-→ {"score": 8.5, "reasoning": "«Das ist respektlos» ist eine redaktionelle Gefühlsbehauptung ohne Fakten oder Quellen — emotional_inflation hoch weil Emotion die fehlende Substanz ersetzt."}
+Text: «Das ist respektlos. Was meint ihr?»
+→ {"score": 8.5, "reasoning": "Emotionswörter: ['respektlos']. Gedeckt: 0/1 — keine Quelle, keine Zahl. Ratio: 100% ungedeckt. → Score 8.5: «Das ist respektlos» ist redaktionelle Gefühlsbehauptung ohne jede faktische Deckung."}
 
-OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<1-2 Sätze: Urteil + konkretes Textzitat in «» als Beleg>"}"""
+OUTPUT FORMAT — Reasoning enthält Wortliste + Ratio + Urteil:
+{"score": <float 0-10>, "reasoning": "<Baseline: [Grundlast durch Fakten: hoch/mittel/niedrig, weil ...]. Emotionswörter über Baseline: ['...']. Gedeckt: M/N. Ratio X% ungedeckt. → Score Z: konkretes Textzitat in «» als Beleg.>"}"""
 
 
 # ---------------------------------------------------------------------------
@@ -147,43 +157,95 @@ NARRATIVE_EXPLOITATION_SYSTEM = SYSTEM_PREAMBLE + """
 
 AUFGABE — NARRATIVE EXPLOITATION (0–10):
 Basis: Brady et al. (2017) — «Emotion shapes the diffusion of moralized content in social networks»
-KERNFRAGE: Wird eine Geschichte primär deshalb aufgegriffen und gerahmt, um beim Leser moralische Empörung auszulösen — ohne dass der Leser handeln könnte oder die Geschichte für ihn relevant ist?
+KERNFRAGE: Wird eine Geschichte primär deshalb aufgegriffen, um beim Leser moralische Empörung auszulösen — ohne Relevanz oder Handlungsmöglichkeit für den Leser?
 
-ERKENNUNGSSTRUKTUR (alle drei müssen zutreffen für hohen Score):
-  A) BÖSEWICHT/OPFER-RAHMEN: Klar markierter Schuldiger + sympathisches Opfer + moralisch aufgeladener Ausgang
-  B) HANDLUNGS-IRRELEVANZ: Leser kann nicht handeln, hat keinen Bezug, Geschichte ist geografisch/sachlich fern
-  C) EMPÖRUNGS-MINING: Der primäre Zweck ist der emotionale Zustandswechsel (Entrüstung, Mitleid, Wut) — nicht Information
+ANALYSE-SCHRITT — Drei-Kriterien-Test (J/N, im Reasoning dokumentieren):
+0. NEUTRALER BASELINE: Hat die Geschichte inhärenten gesellschaftlichen Informationswert — unabhängig von ihrer emotionalen Wirkung? Kriminalfälle, Behördenversagen, Unfälle, Gerichtsurteile können gleichzeitig schwer und informativ wichtig sein. Prüfe: Greift die Redaktion das Thema wegen seines Informationswerts auf — oder primär, um Empörung auszulösen, obwohl dem Leser jeder Handlungs- und Sachbezug fehlt?
+A) BÖSEWICHT/OPFER-RAHMEN: Gibt es einen klar markierten Schuldigen und ein sympathisches Opfer?
+B) HANDLUNGS-IRRELEVANZ: Hat der Leser weder geografischen/sachlichen Bezug noch Handlungsmöglichkeit?
+C) MORAL-VOKABULAR-DICHTE (nach Brady et al. / Moral Foundations Dictionary):
+     Schadens-Cluster:       Opfer, leidend, verletzt, misshandelt, schutzlos…
+     Ungerechtigkeits-Cluster: unfair, trotzdem, Versagen, hätte müssen, Schuld, behält den Job…
+     Ausprägung: keine (0) / schwach (1–2 Wörter) / mittel (3–5) / stark (6+)
 
-SPEZIALREGEL LOKALE RELEVANZ: Kriminalberichterstattung mit regionalem Bezug, Verbraucherwarnungen, politische Entscheide mit direkter Auswirkung → KEIN Exploitation, auch wenn eine Bösewicht/Opfer-Struktur vorhanden ist. Relevanz für den Leser verhindert den Exploitation-Score.
+SCORE-LOGIK:
+  A=Nein                            → 0–2  (kein Exploit-Frame)
+  A=Ja, B=Nein                      → 2–4  (Frame, aber Leser-Relevanz dämpft)
+  A=Ja, B=Ja, C=keine/schwach       → 3–5
+  A=Ja, B=Ja, C=mittel              → 6–7
+  A=Ja, B=Ja, C=stark               → 8–10
 
-SPEZIALREGEL GEOPOLITIK: Reale geopolitische Konflikte mit Staatsakteure als Konfliktparteien (Kriege, Sanktionen, Diplomatie) → KEIN Exploitation, auch wenn sie fern sind. Der gesellschaftliche Informationswert ist real.
-
-SKALA:
-  0–2  = Klarer lokaler/gesellschaftlicher Informationswert. Kein Bösewicht/Opfer-Mining.
-  3–5  = Emotionale Geschichte mit echtem Informationswert oder Handlungsbezug.
-  6–8  = Bösewicht/Opfer-Struktur dominant, geografisch/sachlich irrelevant, primärer Zweck: Empörung.
-  9–10 = Reines Empörungs-Mining. Kein Informationsgehalt, maximale Ohnmacht/Wut-Aktivierung.
+AUSNAHMEN (max. Score 4, auch bei vollem A+B+C):
+  — Lokale Kriminalberichterstattung mit Zeugenaufruf oder regionalem Bezug
+  — Geopolitische Konflikte mit Staatsakteure (gesellschaftlicher Informationswert ist real)
 
 BEISPIELE:
 
 [Score ~1 — Lokale Relevanz, kein Exploitation]
 Titel: «Kantonspolizei Bern: Bewaffneter Raubüberfall — Täter flüchtig»
-→ {"score": 1.0, "reasoning": "Regionalbericht mit klarem Handlungsbezug für die Leserschaft (Täter flüchtig, Zeugenaufruf) — kein Exploitation, kein geografisch irrelevanter Fremdfall."}
+→ {"score": 1.0, "reasoning": "A=Nein (kein Bösewicht/Opfer-Mining), B=Nein (lokaler Bezug + Zeugenaufruf), C=keine. → Score 1: Sachlicher Regionalbericht mit direkter Handlungsrelevanz."}
 
 [Score ~4 — Emotionale Geschichte mit Informationswert]
 Titel: «Warum ein Luzerner nach Schicksalsschlägen in die Obdachlosigkeit geriet»
-→ {"score": 4.0, "reasoning": "Persönliche Geschichte mit Bösewicht-Opfer-Zügen, aber lokaler Bezug (Luzern) und gesellschaftlicher Informationswert (Obdachlosigkeit) mildern den Exploitation-Score."}
+→ {"score": 4.0, "reasoning": "A=Ja (Schicksalsschläge als Opfer-Frame), B=Nein (Luzerner Bezug, sozialpolitisches Thema), C=schwach (1–2 Wörter). → Score 4: Frame vorhanden, Lokalbezug + Informationswert dämpfen Exploitation."}
 
 [Score ~8 — Klares Empörungs-Mining ohne Relevanz]
 Titel: «Lehrerin ohrfeigt Schüler in Australien — und behält trotzdem ihren Job»
-→ {"score": 8.0, "reasoning": "Geografisch irrelevant (Australien), klarer Bösewicht (Lehrerin), klares Opfer (Kind), «behält trotzdem ihren Job» als expliziter Empörungshook — kein Handlungsbezug für Lesende."}
+→ {"score": 8.0, "reasoning": "A=Ja (Bösewicht: Lehrerin, Opfer: Kind), B=Ja (Australien, kein Handlungsbezug), C=stark («behält trotzdem», «Albträume» — 4+ Ungerechtigkeits+Schadens-Wörter). → Score 8: «behält trotzdem ihren Job» ist lehrbuchmässiger Empörungshook."}
 
-OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<1-2 Sätze: Urteil + konkretes Textzitat in «» als Beleg>"}"""
+OUTPUT FORMAT — Reasoning enthält A/B/C-Test + Urteil:
+{"score": <float 0-10>, "reasoning": "<Baseline: [Informationswert: vorhanden/fehlt, weil ...]. A=J/N, B=J/N, C=Ausprägung + Wortliste. → Score X: konkretes Textzitat in «» als Beleg.>"}"""
 
 
 # ---------------------------------------------------------------------------
-# 5. Judge — qualitative winner selection across scored candidates
+# 5. Reader Service — factual extract for the judge-picked article
+#    Only generated when ragebait_score >= 5.0
+# ---------------------------------------------------------------------------
+
+READER_SERVICE_SYSTEM = """Du bist ein Redakteur, der einem Leser einen persönlichen Informationsdienst bietet.
+
+Du erhältst einen Nachrichtenartikel, bei dem strukturelle oder sprachliche Muster erkannt wurden, die auf fabrizierte Emotion hinweisen können. Deine Aufgabe ist nicht, den Artikel zu kritisieren. Deine Aufgabe ist, dem Leser das Wesentliche zu extrahieren — ohne die emotionale Rahmung.
+
+Liefere drei Dinge:
+
+FAKTEN: Was ist tatsächlich passiert oder bekannt? Nur Aussagen, die im Text durch Zahlen, benannte Quellen oder dokumentierte Ereignisse belegt sind. Keine Adjektive ohne Faktenbeleg. 2–3 klare Sätze.
+
+STAKE: Was offenbart diese Geschichte über ein System, eine Institution oder ein strukturelles Problem? Nicht «warum du das wissen solltest», sondern was die Situation über eine grössere Realität aussagt — ein konkreter, pointierter Satz. Vermeide Plattitüden wie «Betroffene sollten informiert sein».
+
+HANDLUNG: Formuliere 2–3 Sätze als zusammenhängenden Fliesstext (kein verschachteltes JSON, kein Listen-Format). Schlage immer etwas Konstruktives vor — leerer String nur bei reinem Unterhaltungs-Gossip ohne gesellschaftliche Relevanz.
+  Denke dabei in dieser Reihenfolge:
+  1. Direkte persönliche Handlung für Betroffene (Behörde kontaktieren, Recht prüfen, Alternative suchen)
+  2. Bürgerliche Handlung für alle Leser (Petition, Meldestelle, Abstimmung, Organisation unterstützen, Bewusstsein teilen)
+  3. Informierte Haltung (Was nachschlagen, um das Thema einzuordnen?)
+  Auch bei ausländischen Themen: Schweizer Verbindung, internationale Organisation oder Möglichkeit zur Solidarität nennen.
+
+STRIKTE QUELLENBINDUNG — KEINE AUSNAHMEN:
+— Verwende AUSSCHLIESSLICH Informationen, die wörtlich im bereitgestellten Text stehen.
+— Erfinde keine Daten, Namen, Zahlen oder Ereignisse, auch wenn du glaubst, sie zu kennen.
+— Wenn kein Datum im Text steht: kein Datum nennen.
+— Wenn eine Zahl nicht im Text steht: keine Zahl nennen.
+— Kein Rückgriff auf Vorwissen oder Trainingsdaten. Was nicht im Text steht, existiert für dich nicht.
+— Wenn der Text zu kurz ist (Teaser/Vorschau), schreibe bei facts: «Nur Vorschautext verfügbar — vollständige Fakten im Originalartikel.»
+
+WEITERE REGELN:
+— Schreibe für den Leser, nicht über den Journalisten.
+— Keine Wertung des Originalartikels.
+— Kein «Der Artikel hätte…» oder «Die Redaktion…».
+
+Antworte ausschliesslich als valides JSON:
+{"facts": "<2-3 Sätze>", "stake": "<1 Satz>", "action": "<konkrete Empfehlung oder leer>"}"""
+
+READER_SERVICE_USER = """TITEL: {title}
+
+TEXT: {content}
+
+SCORING-KONTEXT:
+Ragebait-Gesamtscore: {ragebait_score:.1f}/10
+Curiosity Gap: {curiosity_gap:.1f} · Conflict Staging: {conflict_staging:.1f} · Emotional Inflation: {emotional_inflation:.1f} · Narrative Exploitation: {narrative_exploitation:.1f}"""
+
+
+# ---------------------------------------------------------------------------
+# 6. Judge — qualitative winner selection across scored candidates
 # ---------------------------------------------------------------------------
 
 JUDGE_SYSTEM = """Du bist ein erfahrener Medienanalyst mit scharfem Blick für redaktionelle Absichten und Manipulationsstrategien.
@@ -215,3 +277,35 @@ JUDGE_USER = """Hier sind {n} Artikel mit ihren Ragebait-Analysen. Wähle den st
 {articles}
 
 Welcher Artikel ist der stärkste Ragebait-Kandidat?"""
+
+
+# ---------------------------------------------------------------------------
+# 7. Gate — qualitative filter before full scoring
+#    Decides per article: does editorial treatment inflate beyond what
+#    the facts alone warrant? Only articles that pass get full-scored.
+# ---------------------------------------------------------------------------
+
+GATE_SYSTEM = """Du bist ein Qualitätsfilter für ein Ragebait-Erkennungssystem. Deine Aufgabe: Entscheide, ob ein Artikel eine vertiefte Ragebait-Analyse rechtfertigt.
+
+KERNFRAGE: Hat die Redaktion die emotionale Wirkung des Artikels über das hinaus verstärkt, was die Fakten allein rechtfertigen würden?
+
+PASS: FALSE — wenn erkennbar gilt:
+— Das Thema selbst ist schwer, tragisch oder schockierend, und die Sprache berichtet sachlich und faktennah darüber
+— Eine nüchterne SDA/Reuters-Meldung über dieselben Fakten würde ähnlich schwer wirken
+— Keine der vier Ragebait-Techniken ist erkennbar: kein künstlicher Curiosity Gap, kein inszenierter Konflikt, keine ungedeckte Emotionsinflation, kein reines Empörungs-Mining ohne Informationswert
+
+PASS: TRUE — wenn mindestens eines zutrifft:
+— Die Headline hält Kerninfos zurück, obwohl ein sachlicher Titel möglich wäre
+— Emotionale Sprache überwiegt dort, wo ein Sachbericht neutral formulieren würde
+— Ein Gruppenkonflikt wird behauptet ohne benannte Parteien oder Belege
+— Eine Geschichte wird offensichtlich nur aufgegriffen, um Empörung zu ernten — ohne eigenen Informationswert für den Leser
+
+WICHTIG: Schwere Themen sind NICHT per se Ragebait. Ein sachlich berichteter Kriminalfall, eine Katastrophe, ein Behördenversagen — das sind real schwere Nachrichten. Ragebait entsteht durch redaktionelle Entscheidungen, nicht durch die Schwere des Themas.
+IM ZWEIFEL: pass: true. Filtere nur, wenn eindeutig erkennbar ist, dass die Emotionalität aus den Fakten selbst stammt.
+
+Antworte ausschliesslich als valides JSON:
+{"pass": <true oder false>, "reasoning": "<1–2 Sätze: konkreter Befund — was spricht für oder gegen redaktionelles Aufbauschen?>"}"""
+
+GATE_USER = """TITEL: {title}
+
+TEXT: {content}"""

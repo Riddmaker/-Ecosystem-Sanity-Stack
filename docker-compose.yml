@@ -26,6 +26,7 @@ services:
     environment:
       POSTGRES_HOST: db
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       PYTHONUNBUFFERED: "1"
     ports:
       - "8501:8501"
@@ -45,6 +46,7 @@ services:
     environment:
       POSTGRES_HOST: db
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       PYTHONUNBUFFERED: "1"
     depends_on:
       db:
@@ -63,6 +65,7 @@ services:
     environment:
       POSTGRES_HOST: db
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       PYTHONUNBUFFERED: "1"
     depends_on:
       db:

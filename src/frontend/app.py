@@ -75,6 +75,12 @@ st.markdown(f"""
 
 {root_vars}
 
+:root {{
+  --fs-body:  0.82rem;
+  --fs-label: 0.72rem;
+  --fs-meta:  0.65rem;
+}}
+
 html, body,
 [data-testid="stAppViewContainer"],
 [data-testid="stApp"],
@@ -125,23 +131,56 @@ html, body,
     font-size: 1.05rem; font-weight: 600;
     color: var(--text-primary); line-height: 1.45; margin-bottom: 0.6rem;
 }}
-.sub-label {{ font-size: 0.68rem; color: var(--text-secondary); }}
-.sub-score-val {{ font-size: 0.82rem; font-weight: 600; }}
+.sub-label {{ font-size: var(--fs-meta); color: var(--text-secondary); }}
+.sub-score-val {{ font-size: var(--fs-body); font-weight: 600; }}
 .sub-row {{ display:flex; justify-content:space-between; align-items:baseline; margin: 3px 0; }}
 .reasoning-text {{
-    font-size: 0.75rem; color: var(--text-secondary); line-height: 1.65;
+    font-size: var(--fs-body); color: var(--text-secondary); line-height: 1.6;
     border-left: 3px solid var(--border-light); padding-left: 12px;
 }}
 .tag {{
-    font-size: 0.68rem; background: var(--tag-bg); color: var(--tag-color);
+    font-size: var(--fs-meta); background: var(--tag-bg); color: var(--tag-color);
     border-radius: 4px; padding: 2px 8px; margin-right: 4px;
     display: inline-block;
 }}
 .section-label {{
-    font-size: 0.72rem; font-weight: 600; color: var(--text-secondary);
+    font-size: var(--fs-label); font-weight: 600; color: var(--text-secondary);
     text-transform: uppercase; letter-spacing: 0.06em;
     margin: 1.8rem 0 0.6rem 0; padding-bottom: 0.6rem;
     border-bottom: 1px solid var(--border);
+}}
+
+/* ── Reader service card ── */
+.reader-service-wrap {{
+    margin-top: 1.2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}}
+.reader-service-header {{
+    padding: 0.6rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--fs-label); font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.06em;
+}}
+.reader-service-body {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+}}
+.reader-service-cell {{
+    padding: 0.9rem 1.1rem;
+    border-right: 1px solid var(--border);
+    font-size: var(--fs-body); color: var(--text-secondary); line-height: 1.6;
+}}
+.reader-service-cell:last-child {{ border-right: none; }}
+.reader-service-cell-label {{
+    font-size: var(--fs-meta); font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin-bottom: 0.3rem;
 }}
 
 /* ── Quadrant legend ── */
@@ -259,6 +298,13 @@ FIELD_LABELS = {
     "narrative_exploitation": "Narrative Exploitation",
 }
 
+def extract_verdict(reasoning: str) -> str:
+    """For v8 reasoning (contains →): show only the verdict after the arrow.
+    Falls back to full text for older versions that don't use this format."""
+    if "→" in reasoning:
+        return reasoning.split("→", 1)[1].strip()
+    return reasoning
+
 def format_reasoning(text: str) -> str:
     """Bold field name labels and add line breaks between reasoning sections."""
     for key, label in FIELD_LABELS.items():
@@ -307,37 +353,16 @@ col_title, col_toggle = st.columns([5, 1])
 
 with col_title:
     st.markdown("""
-<div style="margin-bottom:0.4rem;">
+<div style="margin-bottom:0.15rem;">
   <span style="font-size:1.4rem;font-weight:600;color:var(--text-primary);">Media Sanity Dashboard</span>
 </div>
-<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.8rem;max-width:680px;line-height:1.6;">
-  Fabrizierte Emotion in Nachrichten hat messbare Kosten: Sie verzerrt die Wahrnehmung
-  der Welt, baut eine falsche Dringlichkeit auf — und erschöpft mit der Zeit die Fähigkeit,
-  auf echte Missstände zu reagieren. Wer diesen Inhalt bewusst konsumiert, zahlt trotzdem —
-  denn es braucht mit der Zeit immer mehr Energie, nicht noch mehr davon zu konsumieren.
-  <span style="display:block;margin-top:0.5rem;">
-  Dieses Werkzeug misst, ob der emotionale Gehalt eines Artikels aus den berichteten Fakten
-  entsteht — oder ob Hinweise auf sprachliche und strukturelle Muster vorliegen, die Klicks
-  und Empörung fördern können. Kein Urteil über Medien oder Journalist:innen, sondern ein
-  Instrument zur eigenen Orientierung.
-  <span style="display:block;margin-top:0.5rem;font-weight:600;color:var(--text-primary);">
-  Dieses Instrument veranschaulicht ein Framework das sich direkt auf den eigenen Medienkonsum
-  übertragen lässt — es gibt ein Bewertungsraster an die Hand, mit dem sich auch im Alltag
-  selber Artikel bewerten lassen. Das Ziel des Projektes ist es, einen bewussteren Medienkonsum zu fördern.
-  </span>
-  <span style="display:block;margin-top:0.2rem;">Wissenschaftliche Grundlagenn ganz unten auf der Seite.</span>
-  </span>
-  <span style="display:block;margin-top:0.6rem;color:var(--text-muted);line-height:1.7;">
-  Alle Bewertungen werden automatisiert durch ein Sprachmodell erstellt — ohne menschliche
-  Prüfung. Das Modell bewertet ausschliesslich die sprachliche und strukturelle Architektur
-  des Textes, nicht den Wahrheitsgehalt der Aussagen. Sarkasmus und Satire werden dabei
-  aktuell manchmal fälschlicherweise als Conflict Staging interpretiert.
-  Der Code und die Bewertungs-Prompts sind quelloffen unter der Apache-2.0-Lizenz einsehbar. Bei wahrgenommenen Fehlurteilen, fehlenden Nuancen oder Kritik an den Prompts
-  ist Feedback via
+<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.1rem;">
+  Misst fabrizierte Emotion in Schweizer Nachrichtenmedien — stündlich aktualisiert.
+</div>
+<div style="font-size:0.65rem;color:var(--text-muted);">
+  KI-generiert · keine menschliche Prüfung ·
   <a href="https://github.com/Riddmaker/-Ecosystem-Sanity-Stack/issues" target="_blank"
-     style="color:var(--text-muted);text-decoration:underline;">GitHub Issues</a>
-  jederzeit willkommen.
-  </span>
+     style="color:var(--text-muted);text-decoration:underline;">Feedback via GitHub</a>
 </div>
 """, unsafe_allow_html=True)
 
@@ -354,6 +379,27 @@ with col_toggle:
         if new_theme != st.session_state.theme:
             st.session_state.theme = new_theme
             st.rerun()
+
+with st.expander("Was misst dieses Dashboard?"):
+    st.markdown("""
+Dieses Werkzeug misst, ob der emotionale Gehalt eines Artikels aus den berichteten Fakten
+entsteht — oder ob Hinweise auf sprachliche und strukturelle Muster vorliegen, die Klicks
+und Empörung fördern können. Kein Urteil über Medien oder Journalist:innen, sondern ein
+Instrument zur eigenen Orientierung.
+
+**Ragebait Index (0–10, höher = schlechter):** Vier Dimensionen, je ein Sprachmodell-Aufruf.
+
+**Curiosity Gap** (Blom & Hansen 2015) — Hält die Headline Kerninformationen zurück, um den Klick zu erzwingen?
+**Conflict Staging** (Rony et al. 2017) — Konstruiert die Redaktion einen Gruppenkonflikt ohne Faktenbasis?
+**Emotional Inflation** (Potthast et al. 2016) — Überwiegen emotionale Behauptungen gegenüber verifizierbaren Fakten?
+**Narrative Exploitation** (Brady et al. 2017) — Wird eine Geschichte primär aufgegriffen, um Empörung auszulösen — ohne Handlungsbezug?
+
+Fabrizierte Emotion hat messbare Kosten: Sie verzerrt die Wahrnehmung der Welt, baut eine falsche
+Dringlichkeit auf und erschöpft mit der Zeit die Fähigkeit, auf echte Missstände zu reagieren
+(McLaughlin et al. 2022, Crockett 2017). Ziel des Projekts ist ein bewussterer Medienkonsum.
+
+*Sarkasmus und Satire werden gelegentlich falsch eingestuft. Code und Prompts sind Open Source (Apache 2.0).*
+""")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -457,9 +503,9 @@ if latest:
                 if sr:
                     reasoning_html += (
                         f'<div style="margin-bottom:0.75rem;">'
-                        f'<div style="font-size:0.65rem;font-weight:600;color:{sc};'
+                        f'<div style="font-size:var(--fs-meta);font-weight:600;color:{sc};'
                         f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">{sl}</div>'
-                        f'<div class="reasoning-text">{sr}</div>'
+                        f'<div class="reasoning-text">{extract_verdict(sr)}</div>'
                         f'</div>'
                     )
         else:
@@ -504,67 +550,45 @@ if latest:
         unsafe_allow_html=True,
     )
 
-    RB_S = f"color:{RB};font-weight:700;"
+    # ── Reader service ──
+    reader_service = d.get("reader_service")
+    if reader_service:
+        facts  = reader_service.get("facts", "").strip()
+        stake  = reader_service.get("stake", "").strip()
+        action = reader_service.get("action", "").strip()
 
-    # ── Judge reasoning ──
-    judge_text = latest.get("judge_reasoning")
-    if judge_text:
-        # Score context note for low scores
-        score_note = ""
-        if rb_score < 3.5:
-            score_note = "Gesamtscore tief — heute wenig Ragebait im Umlauf. Analyse entsprechend mit Vorsicht geniessen."
-        elif rb_score < 5.0:
-            score_note = "Moderater Gesamtscore — leichter Ragebait-Verdacht, aber keine klaren Ausreisser."
+        facts_cell = (
+            f'<div class="reader-service-cell">'
+            f'<div class="reader-service-cell-label">Was bekannt ist</div>'
+            f'{facts}'
+            f'</div>'
+        ) if facts else ""
 
-        score_note_html = (
-            f'<div style="margin-top:0.5rem;font-size:0.68rem;color:{T3};font-style:italic;">'
-            f'{score_note}</div>'
-        ) if score_note else ""
+        stake_cell = (
+            f'<div class="reader-service-cell">'
+            f'<div class="reader-service-cell-label">Was auf dem Spiel steht</div>'
+            f'{stake}'
+            f'</div>'
+        ) if stake else ""
+
+        action_cell = (
+            f'<div class="reader-service-cell" style="grid-column:1/-1;'
+            f'border-top:1px solid var(--border);border-right:none;">'
+            f'<div class="reader-service-cell-label">Was du tun kannst</div>'
+            f'{action}'
+            f'</div>'
+        ) if action else ""
+
+        body_cols = f'<div class="reader-service-body">{facts_cell}{stake_cell}{action_cell}</div>'
 
         st.markdown(
-            f'<div style="margin-top:0.9rem;padding:0.8rem 1.1rem;'
-            f'border-left:3px solid {RB};background:var(--bg-card);'
-            f'border-radius:0 6px 6px 0;">'
-            f'<div style="font-size:0.68rem;font-weight:600;color:{RB};'
-            f'text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.35rem;">'
-            f'Warum hat Mistral diesen Artikel gewählt?</div>'
-            f'<div style="font-size:0.78rem;color:{T2};line-height:1.65;">{judge_text}</div>'
-            f'{score_note_html}'
+            f'<div class="reader-service-wrap">'
+            f'<div class="reader-service-header">Kern des Themas</div>'
+            f'{body_cols}'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-    st.markdown(
-        f'<div style="font-size:0.75rem;color:{T2};line-height:1.65;margin-top:0.8rem;">'
-        f'<span style="{RB_S}font-size:0.72rem;text-transform:uppercase;'
-        f'letter-spacing:0.05em;">Ragebait Index</span>'
-        f'<span style="color:{T3};font-size:0.72rem;"> — 0 bis 10, höher = schlechter</span><br>'
-        f'Misst, ob der emotionale Gehalt eines Artikels aus den berichteten Fakten entsteht '
-        f'— oder ob Hinweise auf sprachliche und strukturelle Muster vorliegen, '
-        f'die zur Erzeugung von Klicks und Empörung eingesetzt werden können. '
-        f'Tiefe Werte bedeuten authentische Berichterstattung. '
-        f'Hohe Werte weisen auf fabrizierte Emotion hin.'
-        f'<br><br>'
-        f'<span style="font-weight:600;color:{T2};">Curiosity Gap</span>'
-        f'<span style="color:{T3};"> — Hält die Headline absichtlich Kerninformationen zurück, '
-        f'um den Klick zu erzwingen? Hohe Werte bedeuten: die Frage wird aufgebaut, '
-        f'die Antwort aber bewusst verweigert.</span><br>'
-        f'<span style="font-weight:600;color:{T2};">Conflict Staging</span>'
-        f'<span style="color:{T3};"> — Konstruiert die Redaktion aktiv einen Gruppenkonflikt '
-        f'ohne ausreichende Faktenbasis, um Empörung und Kommentare zu ernten? '
-        f'Reale, dokumentierte Konflikte zählen nicht als Staging.</span><br>'
-        f'<span style="font-weight:600;color:{T2};">Emotional Inflation</span>'
-        f'<span style="color:{T3};"> — Wie hoch ist der Anteil emotionaler Behauptungen '
-        f'im Verhältnis zu verifizierbaren Fakten, Zahlen und Quellen? '
-        f'Hohe Werte bedeuten: Gefühl ersetzt Substanz.</span><br>'
-        f'<span style="font-weight:600;color:{T2};">Narrative Exploitation</span>'
-        f'<span style="color:{T3};"> — Wird eine Geschichte primär deshalb aufgegriffen, '
-        f'um moralische Empörung auszulösen — ohne dass der Leser handeln könnte '
-        f'oder die Geschichte für ihn relevant ist? '
-        f'Bösewicht, Opfer, Ohnmacht: das klassische Empörungs-Muster.</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
 
 else:
     st.markdown(
@@ -620,7 +644,8 @@ st.markdown(f"<style>{_btn_override}</style>", unsafe_allow_html=True)
 # ─────────────────────────────────────────────────────────────
 # RESEARCH FOOTER
 # ─────────────────────────────────────────────────────────────
-st.markdown("""
+with st.expander("Wissenschaftliche Grundlagen"):
+    st.markdown("""
 <div class="research-footer">
 
   <div style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;
@@ -705,3 +730,4 @@ st.markdown("""
 
 </div>
 """, unsafe_allow_html=True)
+

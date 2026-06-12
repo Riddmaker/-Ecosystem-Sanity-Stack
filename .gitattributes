@@ -1,0 +1,18 @@
+# Force LF for all files by default
+* text=auto eol=lf
+
+# Shell scripts must always be LF (they run in Linux containers)
+*.sh text eol=lf
+
+# Windows-specific files — CRLF is correct
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files — no line-ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

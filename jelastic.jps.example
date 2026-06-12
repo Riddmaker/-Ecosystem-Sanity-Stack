@@ -1,0 +1,110 @@
+---
+# Jelastic Packaging System manifest — Ecosystem Sanity Stack
+#
+# Recreates the full production environment from scratch:
+#   - App server (Docker, GHCR image)
+#   - PostgreSQL 16 (managed node)
+#   - Shared Storage node (persistent volume for PG data)
+#   - Mount: storage:/pgdata → pg_node:/var/lib/pgsql/data
+#   - All environment variables
+#
+# Usage:
+#   1. Copy this file: cp jelastic.jps.example jelastic.jps
+#   2. Replace YOUR_GITHUB_USERNAME and YOUR_REPO_NAME below
+#   3. In Jelastic console → Import → upload jelastic.jps
+#      (or paste the raw GitHub URL if your repo is public)
+#
+# Secrets are entered interactively at import time — never hardcode them here.
+
+type: install
+name: Ecosystem Sanity Stack
+id: ecosystem-sanity-stack
+version: "1.0"
+baseUrl: https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/main
+
+settings:
+  fields:
+    - name: mistral_api_key
+      caption: Mistral API Key
+      type: string
+      required: true
+    - name: pg_password
+      caption: PostgreSQL Password
+      type: string
+      inputType: password
+      required: true
+      default: ""
+
+nodes:
+  # ── App server ───────────────────────────────────────────────────────────────
+  - nodeGroup: cp
+    nodeType: docker
+    displayName: Ecosystem-sanity-stack
+    dockerName: ghcr.io/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME
+    tag: latest
+    fixedCloudlets: 1
+    flexibleCloudlets: 4
+    env:
+      MISTRAL_API_KEY: ${settings.mistral_api_key}
+      DATABASE_URL: postgresql://webadmin:${settings.pg_password}@${nodes.sqldb[0].intIP}:5432/postgres
+      POSTGRES_HOST: ${nodes.sqldb[0].intIP}
+      POSTGRES_USER: webadmin
+      POSTGRES_PASSWORD: ${settings.pg_password}
+      POSTGRES_DB: postgres
+      POSTGRES_PORT: "5432"
+      PYTHONUNBUFFERED: "1"
+    ports: "8501"
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  - nodeGroup: sqldb
+    nodeType: postgresql
+    tag: "16"
+    displayName: PostgreSQL 16
+    fixedCloudlets: 1
+    flexibleCloudlets: 6
+
+  # ── Shared Storage (persistent PG data volume) ───────────────────────────────
+  - nodeGroup: storage
+    nodeType: storage
+    displayName: PG Data Storage
+    fixedCloudlets: 1
+    flexibleCloudlets: 4
+    volumes:
+      - /pgdata
+
+onInstall:
+  # Stop PG, mount the storage volume, restart — ensures data dir is on the
+  # persistent NFS share before PostgreSQL initialises for the first time.
+  - stopNodes:
+      nodeGroup: sqldb
+
+  - api:
+      method: environment.file.AddMountPointByGroup
+      params:
+        nodeGroup: sqldb
+        path: /var/lib/pgsql/data
+        sourcePath: /pgdata
+        sourceNodeId: ${nodes.storage[0].id}
+        protocol: nfs
+        readOnly: false
+
+  - startNodes:
+      nodeGroup: sqldb
+
+  - api:
+      method: environment.control.RestartNodes
+      params:
+        nodeGroup: cp
+
+success:
+  text: |
+    **Ecosystem Sanity Stack is live.**
+
+    Dashboard: https://node${nodes.cp[0].id}-${env.domain}:8501
+
+    PostgreSQL data is stored on the persistent storage node and survives
+    node deletion and recreation.
+
+    Next steps:
+    1. Point your domain / Jelastic endpoint to port 8501 on the app node.
+    2. Push to `main` on GitHub to trigger automated redeployments.
