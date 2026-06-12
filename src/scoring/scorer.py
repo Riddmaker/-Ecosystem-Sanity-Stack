@@ -10,15 +10,11 @@ Four sub-scores are computed in parallel (one API call each):
 Composite score = mean of the four sub-scores.
 """
 
-import json
-import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
-from mistralai.client import Mistral
-
+from src.scoring.llm_client import MistralJSONClient, RANDOM_SEED, TEMPERATURE
 from src.scoring.schemas import RagebaitScore, ScoreResult
 from src.scoring.throttle import large_limiter
 from src.scoring.prompts import (
@@ -37,8 +33,6 @@ from src.scoring.prompts import (
 
 SCORE_MODEL_ID    = "mistral-large-latest"
 SCORE_VERSION     = "v9"
-RANDOM_SEED       = 42
-TEMPERATURE       = 0.0
 MAX_CONTENT_CHARS = 3000
 
 _SUB_TASKS = [
@@ -61,11 +55,7 @@ class MediaScorer:
     """
 
     def __init__(self, api_key: Optional[str] = None, model: str = SCORE_MODEL_ID):
-        key = api_key or os.environ.get("MISTRAL_API_KEY")
-        if not key:
-            raise ValueError("No API key provided. Set MISTRAL_API_KEY env variable.")
-        self.client = Mistral(api_key=key)
-        self.model  = model
+        self._client = MistralJSONClient(model, large_limiter, api_key)
 
     def score(self, title: str, content: str) -> ScoreResult:
         """Fire 4 parallel sub-score calls and return an aggregated ScoreResult."""
@@ -200,30 +190,8 @@ class MediaScorer:
         score = max(0.0, min(10.0, score))
         return {"score": score, "reasoning": raw.get("reasoning", "")}
 
-    def _query(self, system: str, user: str, _retries: int = 4) -> dict:
-        for attempt in range(_retries):
-            large_limiter.wait()
-            try:
-                response = self.client.chat.complete(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user",   "content": user},
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=TEMPERATURE,
-                    random_seed=RANDOM_SEED,
-                )
-                raw = json.loads(response.choices[0].message.content)
-                if isinstance(raw, list) and raw:
-                    raw = raw[0]
-                return raw
-            except Exception as e:
-                if "429" in str(e) and attempt < _retries - 1:
-                    backoff = 10 * (attempt + 1)  # 10s, 20s, 30s
-                    time.sleep(backoff)
-                else:
-                    raise
+    def _query(self, system: str, user: str) -> dict:
+        return self._client.query_json(system, user)
 
 
 def result_to_db_fields(result: ScoreResult) -> dict:
