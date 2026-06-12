@@ -29,7 +29,7 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY}
       PYTHONUNBUFFERED: "1"
     ports:
-      - "8501:8501"
+      - "8501:8080"          # host 8501 → container 8080 (Streamlit serves on 8080)
     depends_on:
       db:
         condition: service_healthy
