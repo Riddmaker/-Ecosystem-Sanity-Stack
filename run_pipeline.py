@@ -16,7 +16,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import argparse
+import logging
+
 from src.pipeline import run, ALL_SOURCES
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # silence per-request logs
 
 parser = argparse.ArgumentParser(description="Ecosystem Sanity Stack — single pipeline run")
 parser.add_argument("--hours", type=float, default=None,
