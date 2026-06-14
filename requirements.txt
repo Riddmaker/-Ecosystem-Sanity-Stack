@@ -9,6 +9,5 @@ mistralai
 pydantic>=2.0
 streamlit
 plotly
-playwright
 schedule
 streamlit-autorefresh

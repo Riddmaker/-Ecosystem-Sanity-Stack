@@ -111,6 +111,8 @@ All scrapers parse JSON-LD `NewsArticle` blocks with trafilatura as fallback.
 > server. It still works from a residential IP, so it remains in the connector registry
 > and can be run explicitly (`run_pipeline.py --sources blick`) from a local machine.
 > A default run uses `DEFAULT_SOURCES` (all sources minus `config.DISABLED_SOURCES`).
+> Because Blick is prod-disabled, the Docker image ships **without** Playwright/Chromium;
+> to scrape Blick locally first run `pip install playwright && playwright install chromium`.
 > To collect Blick legitimately at scale, use a licensed source (e.g. Swissdox@LiRI, the
 > Swiss media archive) or request IP whitelisting from Ringier.
 
@@ -168,7 +170,7 @@ Open [http://localhost:8501](http://localhost:8501).
 ### Run the pipeline manually
 
 ```bash
-# One-shot via Docker (recommended — includes Playwright for Blick):
+# One-shot via Docker:
 docker compose run --rm worker python run_pipeline.py --hours 1
 
 # Or directly via venv (requires local PostgreSQL):
@@ -413,7 +415,7 @@ Article(
 ```
 ecosystem-sanity-stack/
 ├── run_pipeline.py              # CLI entry point (one-shot run)
-├── scheduler.py                 # hourly loop — calls src/pipeline.py
+├── scheduler.py                 # hourly loop — runs run_pipeline.py as a one-shot subprocess
 ├── start.sh                     # container entrypoint: scheduler + frontend
 ├── pytest.ini                   # test configuration
 ├── pyproject.toml               # packaging — `pip install -e .` makes src importable
