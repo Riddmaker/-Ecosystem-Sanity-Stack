@@ -20,6 +20,15 @@ def get_database_url() -> str:
 
 def build_engine(database_url: str | None = None, **kwargs):
     url = database_url or get_database_url()
+    # Resilience against stale pooled connections. The DB node restarts on
+    # redeploys, cloudlet changes and maintenance; without this the pool hands
+    # out a dead socket and the next query raises
+    # "psycopg2.OperationalError: server closed the connection unexpectedly".
+    # pool_pre_ping does a lightweight liveness check (SELECT 1) and transparently
+    # replaces a dead connection; pool_recycle caps connection age so we don't sit
+    # on a socket the server silently dropped. Callers can override via kwargs.
+    kwargs.setdefault("pool_pre_ping", True)
+    kwargs.setdefault("pool_recycle", 300)
     return create_engine(url, **kwargs)
 
 
