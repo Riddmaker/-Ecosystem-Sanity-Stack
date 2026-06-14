@@ -39,7 +39,7 @@ pytest                          # everything
 
 # Pipeline
 python run_pipeline.py --hours 2 --max-articles 5 --sources 20min
-docker compose run --rm worker python run_pipeline.py --hours 1   # via Docker (incl. Playwright)
+docker compose run --rm worker python run_pipeline.py --hours 1   # via Docker (one-shot)
 
 # Dashboard / local stack
 streamlit run src/frontend/app.py
@@ -62,7 +62,10 @@ docker compose up -d            # db + frontend + scheduler
   `repository.py` (upsert + SHA-256 content dedup + query helpers).
 - `src/frontend/` — `app.py` (composition) · `data.py` (queries) · `components.py`
   (HTML builders) · `styles.py` (CSS/themes).
-- `scheduler.py` / `run_pipeline.py` — hourly daemon / one-shot CLI; both import `pipeline.run`.
+- `scheduler.py` / `run_pipeline.py` — hourly daemon / one-shot CLI. The daemon runs the
+  pipeline immediately on startup, then at the top of every hour (`:00`), each cycle as a
+  **subprocess** (`run_pipeline.py`) that exits so its memory peak is reclaimed between runs
+  (an in-process run left ~280 MiB resident at idle). `run_pipeline.py` imports `pipeline.run`.
 
 ## Conventions
 - Use the `logging` module (`log = logging.getLogger(__name__)`), not `print`.
@@ -90,6 +93,14 @@ docker compose up -d            # db + frontend + scheduler
   domain — pages, sitemaps and RSS — so it can't be scraped from the server. It still works
   from a residential IP, so it stays in `CONNECTORS` and can be run explicitly
   (`run_pipeline.py --sources blick`) locally. A default run scrapes `DEFAULT_SOURCES` only.
+- **The Docker image no longer ships Playwright/Chromium** (dropped to slim the prod image;
+  Blick is prod-disabled anyway). Playwright is imported lazily, so the pipeline runs fine
+  without it. To scrape Blick locally, install it first: `pip install playwright &&
+  playwright install chromium`. `requirements.txt` no longer lists `playwright`.
 - `_scrape` runs each source under a hard wall-clock cap (`config.SCRAPE_SOURCE_TIMEOUT`).
   A connector that hangs (e.g. a Playwright navigation that ignores its own timeout against
   a bot wall) is abandoned so it can never freeze the whole run / the hourly daemon.
+- **The dashboard serves on port `8080`, not 8501** (`start.sh`). Jelastic routes the
+  environment URL to `JELASTIC_PRIORITY_PORTS=8080`; serving anywhere else = "connection
+  refused" on the public URL. `docker-compose` maps host `8501` → container `8080`, so
+  `http://localhost:8501` still works in local dev.
