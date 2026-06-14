@@ -9,8 +9,13 @@ instances or parallel threads fire simultaneously.
 import threading
 import time
 
-_MAX_LARGE = 1   # req/sec for mistral-large-* — 1/s to respect plan burst limits
-_MAX_SMALL = 5   # req/sec for mistral-small-* (separate pool)
+# Per-workspace Mistral limits — see admin.mistral.ai/plateforme/limits.
+# The Large tier is the binding constraint at 0.25 RPS (1 request / 4s); pace
+# just under it so bursts don't 429. Setting this to 1/s (the old value) let
+# requests through 4x too fast and caused a storm of 429 backoffs. The Small
+# (pre-score) tier RPS is far higher, so 5/s stays comfortably under it.
+_MAX_LARGE = 0.24   # req/sec for mistral-large-* — workspace limit is 0.25 RPS
+_MAX_SMALL = 5      # req/sec for mistral-small-* (separate pool, higher RPS limit)
 
 
 class _RateLimiter:
