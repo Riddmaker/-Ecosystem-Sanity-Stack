@@ -16,6 +16,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # pipeline runs fine without it. To scrape Blick locally:
 #   pip install playwright && playwright install chromium
 
+# Cloudflare Tunnel client (static binary, ~35 MB). start.sh only launches it
+# when TUNNEL_TOKEN is set, so the image stays inert without a token (local dev).
+# Lets the public hostname reach localhost:8080 over an outbound-only tunnel, so
+# the env needs no public IP. Pin a release by replacing 'latest' with a tag.
+ADD https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 /usr/local/bin/cloudflared
+RUN chmod +x /usr/local/bin/cloudflared
+
 COPY src/ ./src/
 COPY run_pipeline.py .
 COPY scheduler.py .

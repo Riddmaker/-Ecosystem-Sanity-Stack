@@ -104,3 +104,9 @@ docker compose up -d            # db + frontend + scheduler
   environment URL to `JELASTIC_PRIORITY_PORTS=8080`; serving anywhere else = "connection
   refused" on the public URL. `docker-compose` maps host `8501` → container `8080`, so
   `http://localhost:8501` still works in local dev.
+- **Cloudflare Tunnel is opt-in via `TUNNEL_TOKEN`** (`start.sh`). The image ships the
+  `cloudflared` binary; `start.sh` only launches the tunnel when `TUNNEL_TOKEN` is set
+  (prod env var), otherwise it's a no-op (local dev / docker-compose are unaffected). The
+  tunnel is outbound-only and maps its public hostname → `http://localhost:8080` in the
+  Cloudflare Zero Trust dashboard, so the prod env serves the public URL **without a public
+  IP**. Token is set on the cp node, never committed.
