@@ -23,7 +23,7 @@ from src.pipeline import run, ALL_SOURCES, DEFAULT_SOURCES
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
+    format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)  # silence per-request logs
