@@ -2,7 +2,7 @@ FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
-# System deps: gcc + libpq for psycopg2, and Playwright browser dependencies
+# System deps: gcc + libpq for psycopg2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev
@@ -10,8 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright's Chromium + its system dependencies (needed for Blick scraper)
-RUN playwright install chromium --with-deps
+# Note: the Blick scraper needs Playwright + Chromium, but Blick is disabled in
+# production (config.DISABLED_SOURCES — Akamai 403s datacenter IPs), so this
+# image ships WITHOUT them to stay small. Playwright is imported lazily, so the
+# pipeline runs fine without it. To scrape Blick locally:
+#   pip install playwright && playwright install chromium
 
 COPY src/ ./src/
 COPY run_pipeline.py .
