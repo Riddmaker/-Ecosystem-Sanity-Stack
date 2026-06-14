@@ -110,3 +110,18 @@ docker compose up -d            # db + frontend + scheduler
   tunnel is outbound-only and maps its public hostname → `http://localhost:8080` in the
   Cloudflare Zero Trust dashboard, so the prod env serves the public URL **without a public
   IP**. Token is set on the cp node, never committed.
+
+## Roadmap (planned — NOT yet built)
+A **second scoring track** is planned: a **Fact-Check tab** (working name *Irreführungs-Index*)
+alongside the Ragebait Index, reusing the **same scraped articles** (scrape once, two tracks).
+Flow mirrors ragebait but is **open-book** (needs external evidence): pre-flag suspicion of
+unverified/false/unchecked claims (Mistral Small) → fact-check the **top 5** (claim extraction +
+evidence retrieval) → qualitative gate picks the single best example → **3 Mistral-Large
+sub-scores, one call each** (Factual Accuracy / Misleading Framing / Missing Context), mean =
+main score. Retrieval: **Google Fact Check Tools API** (free, 1st pass) + **Tavily** fallback;
+both guard on a missing key so the ragebait track / local dev are never blocked. Must **abstain
+(NEI)** when evidence is thin — never assert "lie" about a named outlet. Frontend adds a "Was du
+sonst tun kannst" shout-out to the **Pino** fact-check extension. Full design, phase breakdown
+and study anchors live in agent memory (`project-factcheck-plan`).
+- **DB gotcha:** `create_all()` does NOT ALTER existing tables — the new fact-check columns need
+  an idempotent `ADD COLUMN IF NOT EXISTS` migration, not just a model change.
