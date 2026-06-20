@@ -81,7 +81,6 @@ with tab_rage:
     else:
         st.markdown(components.render_empty_state(), unsafe_allow_html=True)
 
-    st.markdown("<div style='margin-top:1.6rem'></div>", unsafe_allow_html=True)
     with st.expander("Wissenschaftliche Grundlagen"):
         st.markdown(components.RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
 
@@ -107,7 +106,6 @@ with tab_fc:
     else:
         st.markdown(components.render_factcheck_empty_state(), unsafe_allow_html=True)
 
-    st.markdown("<div style='margin-top:1.6rem'></div>", unsafe_allow_html=True)
     with st.expander("Wissenschaftliche Grundlagen — Faktencheck"):
         st.markdown(components.FACTCHECK_RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
 

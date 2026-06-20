@@ -72,6 +72,10 @@ html, body,
 #MainMenu, footer, header {{ visibility: hidden; }}
 .block-container {{ padding: 2rem 2.5rem 4rem 2.5rem; max-width: 1400px; }}
 
+/* Expanders get the same top gap as the cards (reader-service-wrap margin),
+   so the "Wissenschaftliche Grundlagen" footer doesn't stick to the last card. */
+[data-testid="stExpander"] {{ margin-top: 1.2rem; }}
+
 /* ── Theme toggle (segmented_control) ── */
 /* Unselected buttons */
 [data-testid="stBaseButton-segmented_control"] {{

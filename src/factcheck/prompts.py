@@ -140,7 +140,12 @@ zeigen. Hohe Scores erfordern konkrete, benennbare Belege.
 5. QUELLENKRITIK: Wäge die Verlässlichkeit der Belege ab. Eine schwache, parteiische oder \
 themenfremde Quelle ist kein starker Beleg — im Zweifel Richtung NEI.
 
-Antworte AUSSCHLIESSLICH als valides JSON, ohne erklärenden Text darum herum."""
+Antworte AUSSCHLIESSLICH als valides JSON, ohne erklärenden Text darum herum.
+
+KURZFASSUNG (wichtig): Jedes »reasoning« endet mit » → « gefolgt von GENAU EINEM knappen, \
+konkreten Urteilssatz (höchstens ~18 Wörter). Nur dieser Satz nach dem Pfeil wird im Dashboard \
+angezeigt — er muss für sich allein verständlich sein und das Urteil auf den Punkt bringen. Die \
+ausführliche Analyse davor darf beliebig lang sein."""
 
 
 FC_ACCURACY_USER = """TITEL: {title}
@@ -179,7 +184,7 @@ WICHTIG: Stehen KEINE oder nur themenfremde/unzureichende Belege zur Verfügung,
 ZWINGEND «NEI» (nicht SUPPORTED). Fehlende Belege sind kein Beweis für Richtigkeit.
 
 OUTPUT FORMAT:
-{"label": "SUPPORTED|REFUTED|NEI", "score": <float 0-10>, "reasoning": "<Abgleich Behauptung↔Beleg, mit Quellennennung>"}"""
+{"label": "SUPPORTED|REFUTED|NEI", "score": <float 0-10>, "reasoning": "<Abgleich Behauptung↔Beleg, mit Quellennennung> → <ein Satz: was die Belege zur Kernbehauptung zeigen>"}"""
 
 
 # 2. Misleading Framing — closed-book, Entman (1993)
@@ -201,7 +206,7 @@ VORGEHEN (im Reasoning dokumentieren):
 ZITATE: Bewerte die redaktionelle Rahmung, nicht zitierte Aussagen Dritter.
 
 OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<Fakten vs. nahegelegte Deutung, konkrete Textbelege in «»>"}"""
+{"score": <float 0-10>, "reasoning": "<Fakten vs. nahegelegte Deutung, konkrete Textbelege in «»> → <ein Satz: worin die Verzerrung liegt>"}"""
 
 
 # 3. Missing Context — closed-book, Rogers et al. (2017), paltering
@@ -224,7 +229,7 @@ Einordnung) fehlt, der diesen Eindruck verändern würde?
 Verlange keinen Kontext, der unbekannt oder unzumutbar ist. Bewerte Auslassung, nicht Kürze allein.
 
 OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<fehlender Kontext und seine Wirkung auf den Eindruck>"}"""
+{"score": <float 0-10>, "reasoning": "<welcher Kontext fehlt> → <ein Satz: der fehlende Kontext und seine Wirkung auf den Eindruck>"}"""
 
 
 # Judge — pick the single most illustrative candidate to fact-check (1 call)

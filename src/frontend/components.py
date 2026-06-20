@@ -30,10 +30,12 @@ SUB_SCORES = [
 
 
 def extract_verdict(reasoning: str) -> str:
-    """For v8 reasoning (contains →): show only the verdict after the arrow.
+    """For reasoning that contains →: show only the verdict after the LAST arrow.
+    Ragebait reasonings carry a single → (unchanged); the fact-check accuracy
+    reasoning may carry one → per claim, so the last segment is the final verdict.
     Falls back to full text for older versions that don't use this format."""
     if "→" in reasoning:
-        return reasoning.split("→", 1)[1].strip()
+        return reasoning.rsplit("→", 1)[1].strip()
     return reasoning
 
 
@@ -515,7 +517,7 @@ HEADER_HTML = """
   <span style="font-size:1.4rem;font-weight:600;color:var(--text-primary);">Media Sanity Dashboard</span>
 </div>
 <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.1rem;">
-  Misst Medienhygiene in Schweizer Nachrichtenmedien — von fabrizierter Emotion bis irreführender Faktenlage.
+  Misst fabrizierte Emotion und Irreführung in Schweizer Online Medien.
 </div>
 <div style="font-size:0.65rem;color:var(--text-muted);">
   KI-generiert · keine menschliche Prüfung ·
