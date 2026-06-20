@@ -39,10 +39,10 @@ def extract_verdict(reasoning: str) -> str:
     return reasoning
 
 
-def clip_reasoning(reasoning: str, limit: int = 150) -> str:
-    """Frontend-only shortening: the full reasoning stays in the DB, but the
-    card shows a concise version. Honours a `→` verdict if present, otherwise
-    trims to the first sentence(s) under `limit` chars (never mid-word)."""
+def clip_reasoning(reasoning: str, limit: int = 450) -> str:
+    """Frontend-only safety cap: the prompt produces a short 2–3 sentence verdict
+    after `→` (full reasoning stays in the DB). We show that verdict; the limit
+    only trims runaway text (never mid-word)."""
     text = extract_verdict(reasoning or "").strip()
     # Strip raw markdown emphasis and a leading "1." / "2)" enumeration the model
     # sometimes emits — they render literally in the card.
