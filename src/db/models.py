@@ -70,6 +70,26 @@ class ArticleModel(Base):
     score_version: Mapped[str | None] = mapped_column(String(20))
     score_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # ── Fact-Check track (Irreführungs-Index) — second scoring track ──
+    # Mirrors the ragebait columns but the Tier-2 verdict is open-book
+    # (grounded on retrieved evidence). NULL everywhere = not yet processed
+    # by the fact-check track; the ragebait columns above are independent.
+
+    # Tier-1 pre-flag (Mistral Small, title + first ~250 words): suspicion
+    # that the article carries unverified/false/unchecked claims.
+    fc_pre_score: Mapped[float | None] = mapped_column(Float)        # suspicion screen (0–10)
+    fc_pre_reasoning: Mapped[str | None] = mapped_column(Text)       # 1-sentence reasoning
+    fc_pre_model: Mapped[str | None] = mapped_column(String(100))
+    fc_pre_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Tier-2 verdict (Mistral Large, grounded on retrieved evidence): mean of
+    # the Factual Accuracy / Misleading Framing / Missing Context sub-scores.
+    fact_check_score: Mapped[float | None] = mapped_column(Float)    # Irreführungs-Index (higher = worse)
+    fact_check_details: Mapped[dict | None] = mapped_column(JSONB)   # sub-scores + per-claim evidence
+    fact_check_model: Mapped[str | None] = mapped_column(String(100))
+    fact_check_version: Mapped[str | None] = mapped_column(String(20))
+    fact_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     __table_args__ = (
         UniqueConstraint(
             "source", "source_article_id",
@@ -80,4 +100,6 @@ class ArticleModel(Base):
         Index("ix_articles_pre_score", "pre_score"),
         Index("ix_articles_ragebait_score", "ragebait_score"),
         Index("ix_articles_scraped_at", "scraped_at"),
+        Index("ix_articles_fc_pre_score", "fc_pre_score"),
+        Index("ix_articles_fact_check_score", "fact_check_score"),
     )

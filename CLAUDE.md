@@ -8,9 +8,12 @@ the full project description, research basis, and deployment guide.
 - HABIT 2: [Agentic Initiative] When fixing errors, analyze the terminal output directly using CLI commands rather than asking the user to copy-paste logs.
 - HABIT 3: [Plan First] Before executing any complex task, you must draft a clear, step-by-step execution plan based on existing documentation. Lay it out for yourself and the user, and wait for explicit approval before writing code.
 - HABIT 4: [Library Integrity] When working with external libraries, never guess the syntax. You must first consult the official documentation or the local source code (via the venv or internet tools) to ensure the library, with the version we use in the code-bse, is applied correctly semantically and synthactically.
-- HABIT 5: [Documentation Maintenance] Keep the repository's documentation up-to-date with code changes. Ensure zero contradictions between the code and docs. If contradictions arise, highlight them, decide on the best path, or discuss them with the user.
+- HABIT 5: [Documentation & Context Maintenance] Keep the repository's documentation, template files (like .env.example or config.sample.json), and AI context files (like claude.md or memory logs) up-to-date with code changes. Ensure AI memory and instruction files are maintained where necessary and appropriate for their specific purposes. Ensure example configurations always reflect the actual required keys and structure of the working environment without ever containing real secrets. Ensure zero contradictions between the code, docs, and AI context. If contradictions arise, highlight them, decide on the best path, or discuss them with the user.
 - HABIT 6: [Step-by-Step Reasoning] Before performing any architectural change or fix, layout a logical reasoning process. Think through edge cases step-by-step before executing commands.
 - HABIT 7: [Meta-Optimization] Continuously evaluate our interactions. If you notice repetitive manual tasks, recurring boilerplate generation, or identical shell commands being executed across multiple turns, STOP and proactively suggest an automation. Advise the user if creating a new Skill, Hook, or Plugin from the Marketplace, or using a dedicated CLI or MCP, or using a Subagent would optimize the workflow, strictly following the "Lightest First" philosophy.
+- HABIT 8: [Standardized Quality] Always write code that adheres to established, language-specific style guides (e.g., PEP 8 for Python). Anticipate and prevent the warnings, errors, and hints that standard static analysis tools and linters (like Pylint or ESLint) would flag. Treat clean, idiomatic, and internally consistent syntax as a strict requirement, not an afterthought.
+- HABIT 9: [Secure by Design] Actively integrate fundamental cybersecurity principles into every layer of the application. Validate all inputs, sanitize outputs, and specifically guard against the OWASP Top 10 vulnerabilities (such as SQL Injection, Cross-Site Scripting (XSS), and Broken Access Control). Always apply the principle of least privilege when configuring permissions, databases, or APIs.
+- HABIT 10: [Verifiable Reliability] Ensure the application remains fully testable. For any significant new functionality, write corresponding automated tests and place them in a dedicated tests/ directory at the project root. Before any code is considered "complete" or ready for deployment, run the relevant test suites to verify that the new features work and that no existing functionality has been broken.
 </coding_conventions>
 
 ## What this is
@@ -110,3 +113,29 @@ docker compose up -d            # db + frontend + scheduler
   tunnel is outbound-only and maps its public hostname → `http://localhost:8080` in the
   Cloudflare Zero Trust dashboard, so the prod env serves the public URL **without a public
   IP**. Token is set on the cp node, never committed.
+
+## Fact-Check track (Irreführungs-Index) — BUILT, off by default
+A **second scoring track** in `src/factcheck/`, surfaced as the **Faktencheck** dashboard tab
+alongside the Ragebait Index, reusing the **same scraped articles** (scrape once, two tracks).
+Gated behind `config.FACTCHECK_ENABLED` (default `False`) — while off, the ragebait pipeline and
+local dev are byte-for-byte unchanged. Open-book flow:
+- **Pre-flag** suspicion of unverified/unchecked claims (Mistral Small) — `pre_flag.py`, stage 3b.
+- **Winner-only** (cost control): a judge picks the single best of the top-5 suspicious, and only
+  that article gets claim extraction (`claims.py`) + Tavily web retrieval — `_fc_factcheck` in
+  `pipeline.py`, throttled by `FACTCHECK_EVERY_N_RUNS` via the stateless `_factcheck_due` gate.
+- **Evidence:** Google Fact Check Tools API (free, 1st pass) then Tavily fallback — `retrieval.py`;
+  **both guard on a missing key → `[]`**, so the ragebait track / local dev are never blocked.
+- **3 Mistral-Large sub-scores, one call each** — `scorer.py`: Factual Accuracy (open-book, FEVER
+  SUPPORTED/REFUTED/**NEI**) / Misleading Framing (Entman) / Missing Context (Rogers). Mean =
+  `fact_check_score`. **NEI is excluded from the mean** so abstention never inflates the index;
+  never assert "lie" about a named outlet.
+- Frontend (`src/frontend/`): `st.tabs(["Ragebait Index","Faktencheck"])` + a "Was du sonst tun
+  kannst" shout-out to the **Pino** fact-check extension. Config knobs in `config.py`
+  (`FACTCHECK_*`), retrieval keys `GOOGLE_FACTCHECK_API_KEY` / `TAVILY_API_KEY` in `.env`.
+
+Full design, phase history and study anchors live in agent memory (`project-factcheck-plan`).
+- **DB gotcha:** `create_all()` does NOT ALTER existing tables — the fact-check columns are added
+  by an idempotent `ADD COLUMN IF NOT EXISTS` migration in `db/connection.py::run_migrations()`
+  (Postgres-only, wired into `init_db()`), not by the model change alone.
+- **Enabling = prod cost + a public verdict:** flip `FACTCHECK_ENABLED=True` only with both
+  retrieval keys set on the target env; every merge to `main` is a production deploy.
