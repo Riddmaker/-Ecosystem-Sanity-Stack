@@ -16,6 +16,35 @@ except Exception as e:
 done
 echo "[start.sh] PostgreSQL is ready."
 
+# Patch Streamlit's static index.html so link-preview crawlers (which don't run
+# JS) see our title + description instead of the default "Streamlit". set_page_config
+# only updates the title client-side, which social/chat unfurlers never execute.
+# Idempotent (guarded by a marker) and non-fatal if Streamlit's markup changes.
+python - <<'PY' || echo "[start.sh] index.html meta patch skipped"
+import pathlib, re, streamlit
+from src.strings import UI_PAGE_TITLE, UI_SHARE_DESCRIPTION
+
+path = pathlib.Path(streamlit.__file__).parent / "static" / "index.html"
+html = path.read_text(encoding="utf-8")
+MARK = "<!-- media-sanity-meta -->"
+if MARK in html:
+    print("[start.sh] index.html meta already patched")
+else:
+    html = re.sub(r"<title>.*?</title>", f"<title>{UI_PAGE_TITLE}</title>",
+                  html, count=1, flags=re.S)
+    meta = (
+        f'{MARK}'
+        f'<meta name="description" content="{UI_SHARE_DESCRIPTION}"/>'
+        f'<meta property="og:title" content="{UI_PAGE_TITLE}"/>'
+        f'<meta property="og:description" content="{UI_SHARE_DESCRIPTION}"/>'
+        f'<meta property="og:type" content="website"/>'
+        f'<meta name="twitter:card" content="summary"/>'
+    )
+    html = re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + meta, html, count=1)
+    path.write_text(html, encoding="utf-8")
+    print("[start.sh] patched Streamlit index.html meta tags")
+PY
+
 python -u scheduler.py &
 
 # Cloudflare Tunnel: only when a token is provided (prod). Without TUNNEL_TOKEN
