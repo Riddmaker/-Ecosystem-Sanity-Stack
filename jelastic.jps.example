@@ -48,6 +48,15 @@ settings:
       inputType: password
       required: false
       default: ""
+    # Optional — Cloudflare Tunnel. When set, the app server serves its public URL
+    # over an outbound-only tunnel (no public IP needed). Leave blank to skip the
+    # tunnel; the dashboard is then reached on the node's own endpoint.
+    - name: tunnel_token
+      caption: Cloudflare Tunnel Token (optional)
+      type: string
+      inputType: password
+      required: false
+      default: ""
 
 nodes:
   # ── App server ───────────────────────────────────────────────────────────────
@@ -62,6 +71,7 @@ nodes:
       MISTRAL_API_KEY: ${settings.mistral_api_key}
       GOOGLE_FACTCHECK_API_KEY: ${settings.google_factcheck_api_key}
       TAVILY_API_KEY: ${settings.tavily_api_key}
+      TUNNEL_TOKEN: ${settings.tunnel_token}
       DATABASE_URL: postgresql://webadmin:${settings.pg_password}@${nodes.sqldb[0].intIP}:5432/postgres
       POSTGRES_HOST: ${nodes.sqldb[0].intIP}
       POSTGRES_USER: webadmin
@@ -69,7 +79,9 @@ nodes:
       POSTGRES_DB: postgres
       POSTGRES_PORT: "5432"
       PYTHONUNBUFFERED: "1"
-    ports: "8501"
+      # start.sh serves Streamlit on 8080; tell Jelastic to route the env URL there.
+      JELASTIC_PRIORITY_PORTS: "8080"
+    ports: "8080"
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   - nodeGroup: sqldb
@@ -116,11 +128,11 @@ success:
   text: |
     **Ecosystem Sanity Stack is live.**
 
-    Dashboard: https://node${nodes.cp[0].id}-${env.domain}:8501
+    Dashboard: https://node${nodes.cp[0].id}-${env.domain}:8080
 
     PostgreSQL data is stored on the persistent storage node and survives
     node deletion and recreation.
 
     Next steps:
-    1. Point your domain / Jelastic endpoint to port 8501 on the app node.
+    1. Point your domain / Jelastic endpoint to port 8080 on the app node.
     2. Push to `main` on GitHub to trigger automated redeployments.

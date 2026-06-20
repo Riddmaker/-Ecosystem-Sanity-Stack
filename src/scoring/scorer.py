@@ -17,7 +17,7 @@ from typing import Optional
 from src.scoring.llm_client import MistralJSONClient, RANDOM_SEED, TEMPERATURE
 from src.scoring.schemas import RagebaitScore, ScoreResult
 from src.scoring.throttle import large_limiter
-from src.scoring.prompts import (
+from src.strings import (
     SUB_SCORE_USER,
     CURIOSITY_GAP_SYSTEM,
     CONFLICT_STAGING_SYSTEM,

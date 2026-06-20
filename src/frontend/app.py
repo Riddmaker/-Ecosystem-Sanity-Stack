@@ -1,10 +1,12 @@
 import streamlit as st
 from dotenv import load_dotenv
 
+from src import strings
+
 load_dotenv()
 
 st.set_page_config(
-    page_title="Media Sanity Dashboard",
+    page_title=strings.UI_PAGE_TITLE,
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -48,7 +50,7 @@ with col_title:
 
 with col_toggle:
     chosen = st.segmented_control(
-        "Theme",
+        strings.UI_THEME_LABEL,
         styles.THEME_EMOJIS,
         default=styles.THEME_EMOJIS[styles.THEME_OPTIONS.index(theme)],
         selection_mode="single",
@@ -63,10 +65,10 @@ with col_toggle:
 # ─────────────────────────────────────────────────────────────
 # TABS — Ragebait Index (default, established) + Faktencheck (new)
 # ─────────────────────────────────────────────────────────────
-tab_rage, tab_fc = st.tabs(["Ragebait Index", "Faktencheck"])
+tab_rage, tab_fc = st.tabs([strings.UI_TAB_RAGEBAIT, strings.UI_TAB_FACTCHECK])
 
 with tab_rage:
-    with st.expander("Was misst der Ragebait Index?"):
+    with st.expander(strings.UI_EXPANDER_RB):
         st.markdown(components.EXPLAINER_MD)
 
     if latest:
@@ -81,11 +83,11 @@ with tab_rage:
     else:
         st.markdown(components.render_empty_state(), unsafe_allow_html=True)
 
-    with st.expander("Wissenschaftliche Grundlagen"):
+    with st.expander(strings.UI_EXPANDER_RESEARCH):
         st.markdown(components.RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
 
 with tab_fc:
-    with st.expander("Was misst der Faktencheck?"):
+    with st.expander(strings.UI_EXPANDER_FC):
         st.markdown(components.FACTCHECK_EXPLAINER_MD)
 
     if fc_latest:
@@ -106,7 +108,7 @@ with tab_fc:
     else:
         st.markdown(components.render_factcheck_empty_state(), unsafe_allow_html=True)
 
-    with st.expander("Wissenschaftliche Grundlagen — Faktencheck"):
+    with st.expander(strings.UI_EXPANDER_FC_RESEARCH):
         st.markdown(components.FACTCHECK_RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────

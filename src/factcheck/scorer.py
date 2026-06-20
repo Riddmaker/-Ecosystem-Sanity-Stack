@@ -22,7 +22,7 @@ from typing import Optional
 from src.scoring.llm_client import MistralJSONClient, RANDOM_SEED, TEMPERATURE
 from src.scoring.throttle import large_limiter
 from src.factcheck.schemas import FactCheckScore, FactCheckResult
-from src.factcheck.prompts import (
+from src.strings import (
     FC_ACCURACY_USER,
     FC_CLOSED_USER,
     FACTUAL_ACCURACY_SYSTEM,

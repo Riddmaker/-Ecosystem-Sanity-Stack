@@ -54,6 +54,12 @@ docker compose up -d            # db + frontend + scheduler
   _full_score → _pick_winner`. Sources are a `CONNECTORS` registry; add new sources there.
 - `src/config.py` — all cross-cutting tunables (gate threshold, candidate limit, paywall
   marker, word minimums, scheduler lookback). **Put magic numbers here, not inline.**
+- `src/strings.py` — **single source of truth for ALL human- and model-facing text**: every
+  Mistral prompt template (both tracks) and every dashboard string. German (de-CH) is active;
+  a complete English mirror sits **fully commented out** at the bottom of the same file, defining
+  the same names, so a forker can run the whole stack in English by commenting the German block
+  and uncommenting the English one. **Put all copy here, not inline** — the scoring/frontend
+  modules import names from `src.strings` and only fill in `{placeholders}`.
 - `src/connectors/abstract/scraper_connector.py` — `BaseScraperConnector` owns ONE shared
   crawl loop (template method). Concrete scrapers declare class attrs
   (`SOURCE`/`BASE_URL`/`DEFAULT_SECTIONS`/`CRAWL_DELAY`) and implement
@@ -73,6 +79,9 @@ docker compose up -d            # db + frontend + scheduler
 ## Conventions
 - Use the `logging` module (`log = logging.getLogger(__name__)`), not `print`.
 - Keep tunables in `src/config.py`.
+- Keep all user/model-facing text in `src/strings.py` (never hard-code copy in logic or HTML).
+  Editing a prompt = edit the German constant there; mirror the change in the commented English
+  copy so the two languages stay in sync. Prompt text is byte-sensitive (temp 0.0 + seed 42).
 - Tier-2 scoring is deterministic: temperature 0.0 + seed 42.
 - Rate limits live in `src/scoring/throttle.py` (Large ~1 req/s, Small ~5 req/s). Live
   runs will hit 429s and back off — that's expected, not a bug.
@@ -114,11 +123,13 @@ docker compose up -d            # db + frontend + scheduler
   Cloudflare Zero Trust dashboard, so the prod env serves the public URL **without a public
   IP**. Token is set on the cp node, never committed.
 
-## Fact-Check track (Irreführungs-Index) — BUILT, off by default
+## Fact-Check track (Irreführungs-Index) — BUILT, ON by default
 A **second scoring track** in `src/factcheck/`, surfaced as the **Faktencheck** dashboard tab
 alongside the Ragebait Index, reusing the **same scraped articles** (scrape once, two tracks).
-Gated behind `config.FACTCHECK_ENABLED` (default `False`) — while off, the ragebait pipeline and
-local dev are byte-for-byte unchanged. Open-book flow:
+Gated behind `config.FACTCHECK_ENABLED` (default `True`); set it `False` to run the ragebait track
+alone. The retrieval clients self-skip on missing keys, so it won't crash without
+`GOOGLE_FACTCHECK_API_KEY` / `TAVILY_API_KEY` — but it still spends Mistral calls each run and only
+produces real verdicts (vs. NEI) when both keys are set. Open-book flow:
 - **Pre-flag** suspicion of unverified/unchecked claims (Mistral Small) — `pre_flag.py`, stage 3b.
 - **Winner-only** (cost control): a judge picks the single best of the top-5 suspicious, and only
   that article gets claim extraction (`claims.py`) + Tavily web retrieval — `_fc_factcheck` in
@@ -137,5 +148,6 @@ Full design, phase history and study anchors live in agent memory (`project-fact
 - **DB gotcha:** `create_all()` does NOT ALTER existing tables — the fact-check columns are added
   by an idempotent `ADD COLUMN IF NOT EXISTS` migration in `db/connection.py::run_migrations()`
   (Postgres-only, wired into `init_db()`), not by the model change alone.
-- **Enabling = prod cost + a public verdict:** flip `FACTCHECK_ENABLED=True` only with both
-  retrieval keys set on the target env; every merge to `main` is a production deploy.
+- **On by default = prod cost + a public verdict:** enabled in `config.py` (set
+  `FACTCHECK_ENABLED=False` to disable). Keep both retrieval keys set on any env where it runs;
+  every merge to `main` is a production deploy.
