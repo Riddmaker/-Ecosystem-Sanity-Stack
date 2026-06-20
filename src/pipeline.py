@@ -24,6 +24,13 @@ from src.connectors.specific_scraper.nau_scraper_connector import NauScraperConn
 from src.scoring.pre_scorer import PreScorer, pre_score_to_db_fields
 from src.scoring.schemas import ScoreResult
 from src.scoring.scorer import MediaScorer, result_to_db_fields
+from src.factcheck.pre_flag import FactCheckPreFlagger, fc_pre_flag_to_db_fields
+from src.factcheck.claims import ClaimExtractor
+from src.factcheck.retrieval import (
+    GoogleFactCheckClient, TavilyClient, gather_claim_evidence, domain_of,
+)
+from src.factcheck.scorer import FactCheckScorer, fact_check_to_db_fields, FC_SCORE_VERSION
+from src.factcheck.schemas import FactCheckResult
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +121,153 @@ def _prescreen(new_or_updated_urls: list[str]) -> None:
                 log.info("%.1f  %s", result.score, (article.title or "")[:60])
             except Exception:
                 log.exception("Pre-score failed: %s", (article.title or "")[:60])
+
+
+def _fc_prescreen(new_or_updated_urls: list[str]) -> None:
+    """
+    Fact-check Tier 1: pre-flag suspicion of unverified/unchecked claims with
+    Mistral Small. Mirrors _prescreen but writes the fc_* columns and reads the
+    fact-check work queue. Only invoked when config.FACTCHECK_ENABLED is set.
+    """
+    flagger = FactCheckPreFlagger()
+    with get_session() as session:
+        repo = ArticleRepository(session)
+        for article in repo.get_fc_unflagged(urls=new_or_updated_urls):
+            if is_paywalled(article):
+                # Mark as flagged so it doesn't requeue every run
+                article.fc_pre_score = 0.0
+                article.fc_pre_reasoning = "SKIP: paywalled or teaser-only content"
+                article.fc_pre_model = "none"
+                article.fc_pre_at = datetime.now(timezone.utc)
+                session.flush()
+                log.info("[fc][paywall] %s", (article.title or "")[:60])
+                continue
+
+            try:
+                result = flagger.flag(
+                    title=article.title or "", content=article.content or ""
+                )
+                for k, v in fc_pre_flag_to_db_fields(result).items():
+                    setattr(article, k, v)
+                session.flush()
+                log.info("[fc] %.1f  %s", result.score, (article.title or "")[:60])
+            except Exception:
+                log.exception("[fc] Pre-flag failed: %s", (article.title or "")[:60])
+
+
+def _factcheck_due_since(latest: Optional[datetime], now: datetime, every_n_runs: int) -> bool:
+    """Pure cadence decision (unit-testable): is a fact-check run due?
+
+    Due if cadence is effectively off (<=1), nothing has run yet, or the newest
+    fact-check is at least (every_n_runs - 0.5) hours old. The 0.5h slack lets a
+    slightly-late :00 run still count.
+    """
+    if every_n_runs <= 1 or latest is None:
+        return True
+    elapsed_h = (now - latest).total_seconds() / 3600.0
+    return elapsed_h >= (every_n_runs - 0.5)
+
+
+def _factcheck_due() -> bool:
+    """
+    Throttle the fact-check track to ~every config.FACTCHECK_EVERY_N_RUNS hours.
+    Stateless across the per-hour subprocess runs: it reads the newest
+    fact_check_at instead of an in-process counter, so winner-only Tavily stays
+    inside the free tier even though each run is a fresh process.
+    """
+    if config.FACTCHECK_EVERY_N_RUNS <= 1:
+        return True
+    with get_session() as session:
+        latest = ArticleRepository(session).latest_fact_check_at()
+    return _factcheck_due_since(latest, datetime.now(timezone.utc), config.FACTCHECK_EVERY_N_RUNS)
+
+
+def _fc_factcheck() -> Optional[tuple[ArticleModel, FactCheckResult]]:
+    """
+    Fact-check Tier 2 (winner-only). Pick the single most illustrative suspicious
+    article, retrieve evidence for its claims (Google FCT free → Tavily only here),
+    score it with three Mistral-Large sub-scores, and persist the verdict.
+    """
+    fct       = GoogleFactCheckClient()
+    tavily    = TavilyClient()
+    extractor = ClaimExtractor()
+    scorer    = FactCheckScorer()
+
+    with get_session() as session:
+        repo = ArticleRepository(session)
+        candidates = repo.get_fc_suspicious_above_threshold(
+            min_score=config.FACTCHECK_SUSPICION_THRESHOLD,
+            limit=config.FACTCHECK_CANDIDATE_LIMIT,
+        )
+        if not candidates:
+            log.info("[FC] No suspicious candidates above threshold.")
+            return None
+
+        # Free FCT first pass on each candidate's title → cheap selection signal.
+        judge_input = []
+        for c in candidates:
+            reviews = fct.search(c.title or "")
+            judge_input.append({
+                "title":            c.title or "",
+                "fc_pre_score":     c.fc_pre_score or 0.0,
+                "fc_pre_reasoning": c.fc_pre_reasoning or "",
+                "fact_check_hits":  [r.rating for r in reviews if r.rating],
+            })
+
+        if len(candidates) == 1:
+            idx, judge_reasoning = 0, "single candidate"
+        else:
+            verdict = scorer.judge_candidates(judge_input)
+            idx, judge_reasoning = verdict["chosen"] - 1, verdict["reasoning"]
+        winner = candidates[idx]
+        log.info('[FC] Winner: "%s" (suspicion=%.1f)',
+                 (winner.title or "")[:60], winner.fc_pre_score or 0.0)
+
+        # Winner-only: extract claims, then retrieve evidence (Tavily here only).
+        claims = extractor.extract(title=winner.title or "", content=winner.content or "")
+        if not claims:
+            log.info("[FC] No checkable claims for winner — marking processed.")
+            winner.fact_check_score = 0.0
+            winner.fact_check_details = {"skipped": "no checkable claims extracted"}
+            winner.fact_check_model = "none"
+            winner.fact_check_version = FC_SCORE_VERSION
+            winner.fact_check_at = datetime.now(timezone.utc)
+            session.flush()
+            return None
+
+        evidence = gather_claim_evidence(
+            claims, fct, tavily,
+            exclude_domains=[domain_of(winner.url)] if winner.url else None,
+        )
+
+        result = scorer.score(
+            title=winner.title or "", content=winner.content or "",
+            claims=claims, evidence=evidence,
+        )
+        for k, v in fact_check_to_db_fields(result, judge_reasoning).items():
+            setattr(winner, k, v)
+        session.flush()
+        log.info("[FC] Irreführungs-Index=%.1f (accuracy=%s, framing=%.1f, context=%.1f)",
+                 result.fact_check_score, result.fact_check.factual_accuracy_label,
+                 result.fact_check.misleading_framing, result.fact_check.missing_context)
+        _attach_fc_reader_service(scorer, session, winner, result)
+        return winner, result
+
+
+def _attach_fc_reader_service(scorer, session, winner, result) -> None:
+    """Generate the "Kern des Themas" extract for the fact-checked winner and
+    merge it into fact_check_details. Skipped for thin content (hallucination risk)."""
+    content_words = len((winner.content or "").split())
+    if content_words < config.MIN_READER_SERVICE_WORDS:
+        return
+    try:
+        rs = scorer.generate_reader_service(
+            title=winner.title or "", content=winner.content or "", result=result
+        )
+        winner.fact_check_details = {**(winner.fact_check_details or {}), "reader_service": rs}
+        session.flush()
+    except Exception:
+        log.exception("[FC] reader service failed")
 
 
 def _gate(scorer: MediaScorer, gate_candidates: list[ArticleModel]) -> list[ArticleModel]:
@@ -289,6 +443,14 @@ def run(
     else:
         log.info("Nothing to pre-score.")
 
+    # ── 3b. Fact-check pre-flag (optional second track) ──────────
+    # Reuses the same scraped/upserted articles. Off by default
+    # (config.FACTCHECK_ENABLED) so the ragebait pipeline is unchanged.
+    if config.FACTCHECK_ENABLED and new_or_updated_urls:
+        log.info("[FC] Pre-flagging %d articles for fact-check suspicion (Mistral Small)...",
+                 len(new_or_updated_urls))
+        _fc_prescreen(new_or_updated_urls)
+
     # ── 4. Gate → full-score → judge ─────────────────────────────
     log.info("[4/4] Qualitative gate + full-scoring with Mistral Large...")
     scored: list[tuple[ArticleModel, ScoreResult]] = []
@@ -324,6 +486,17 @@ def run(
                 log.info('Dashboard highlight (single candidate): "%s"',
                          (winner_article.title or "")[:70])
                 log.info("ragebait=%.1f", winner_result.ragebait_score)
+
+    # ── 5. Fact-check verdict (optional, winner-only, throttled) ──
+    # Off by default (config.FACTCHECK_ENABLED) and rate-limited to ~every
+    # FACTCHECK_EVERY_N_RUNS hours so winner-only Tavily stays in the free tier.
+    if config.FACTCHECK_ENABLED:
+        if _factcheck_due():
+            log.info("[FC] Running fact-check verdict (winner-only)...")
+            _fc_factcheck()
+        else:
+            log.info("[FC] Skipping fact-check this run (cadence: every %dh).",
+                     config.FACTCHECK_EVERY_N_RUNS)
 
     log.info("Pipeline done.")
     return bool(scored)

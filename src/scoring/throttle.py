@@ -17,6 +17,12 @@ import time
 _MAX_LARGE = 0.24   # req/sec for mistral-large-* — workspace limit is 0.25 RPS
 _MAX_SMALL = 5      # req/sec for mistral-small-* (separate pool, higher RPS limit)
 
+# Fact-check retrieval APIs. Volume is tiny by design (winner-only Tavily, a
+# handful of FCT lookups per run), so these only smooth out bursts rather than
+# enforce a tight budget — the real budget guard is the cadence knob.
+_MAX_GOOGLE_FC = 5    # req/sec — Google Fact Check Tools daily quota is generous
+_MAX_TAVILY    = 1    # req/sec — keep well under any burst ceiling
+
 
 class _RateLimiter:
     def __init__(self, max_per_second: float) -> None:
@@ -36,3 +42,5 @@ class _RateLimiter:
 # Module-level singletons — import and call .wait() directly
 large_limiter = _RateLimiter(_MAX_LARGE)
 small_limiter = _RateLimiter(_MAX_SMALL)
+google_fc_limiter = _RateLimiter(_MAX_GOOGLE_FC)
+tavily_limiter = _RateLimiter(_MAX_TAVILY)

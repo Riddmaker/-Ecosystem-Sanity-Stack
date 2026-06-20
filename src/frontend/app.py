@@ -34,6 +34,10 @@ all_articles = data.load_articles()
 batch_stats  = data.load_batch_stats()
 latest       = data.pick_highlight(all_articles)
 
+factchecked   = data.load_factchecked()
+fc_batch_stats = data.load_factcheck_batch_stats()
+fc_latest      = data.pick_factcheck_highlight(factchecked)
+
 # ─────────────────────────────────────────────────────────────
 # HEADER + THEME TOGGLE
 # ─────────────────────────────────────────────────────────────
@@ -56,23 +60,54 @@ with col_toggle:
             st.session_state.theme = new_theme
             st.rerun()
 
-with st.expander("Was misst dieses Dashboard?"):
-    st.markdown(components.EXPLAINER_MD)
-
 # ─────────────────────────────────────────────────────────────
-# ARTICLE HIGHLIGHT
+# TABS — Ragebait Index (default, established) + Faktencheck (new)
 # ─────────────────────────────────────────────────────────────
-if latest:
-    st.markdown(components.render_section_label(batch_stats), unsafe_allow_html=True)
-    st.markdown(components.render_highlight(latest), unsafe_allow_html=True)
+tab_rage, tab_fc = st.tabs(["Ragebait Index", "Faktencheck"])
 
-    reader_service = latest["details"].get("reader_service")
-    if reader_service:
-        reader_html = components.render_reader_service(reader_service)
-        if reader_html:
-            st.markdown(reader_html, unsafe_allow_html=True)
-else:
-    st.markdown(components.render_empty_state(), unsafe_allow_html=True)
+with tab_rage:
+    with st.expander("Was misst der Ragebait Index?"):
+        st.markdown(components.EXPLAINER_MD)
+
+    if latest:
+        st.markdown(components.render_section_label(batch_stats), unsafe_allow_html=True)
+        st.markdown(components.render_highlight(latest), unsafe_allow_html=True)
+
+        reader_service = latest["details"].get("reader_service")
+        if reader_service:
+            reader_html = components.render_reader_service(reader_service)
+            if reader_html:
+                st.markdown(reader_html, unsafe_allow_html=True)
+    else:
+        st.markdown(components.render_empty_state(), unsafe_allow_html=True)
+
+    with st.expander("Wissenschaftliche Grundlagen"):
+        st.markdown(components.RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
+
+with tab_fc:
+    with st.expander("Was misst der Faktencheck?"):
+        st.markdown(components.FACTCHECK_EXPLAINER_MD)
+
+    if fc_latest:
+        st.markdown(components.render_factcheck_section_label(fc_batch_stats), unsafe_allow_html=True)
+        st.markdown(components.render_factcheck_highlight(fc_latest), unsafe_allow_html=True)
+
+        reader_service = fc_latest["details"].get("reader_service")
+        if reader_service:
+            reader_html = components.render_reader_service(reader_service)
+            if reader_html:
+                st.markdown(reader_html, unsafe_allow_html=True)
+
+        evidence_html = components.render_factcheck_evidence(fc_latest)
+        if evidence_html:
+            st.markdown(evidence_html, unsafe_allow_html=True)
+
+        st.markdown(components.PINO_SHOUTOUT_HTML, unsafe_allow_html=True)
+    else:
+        st.markdown(components.render_factcheck_empty_state(), unsafe_allow_html=True)
+
+    with st.expander("Wissenschaftliche Grundlagen — Faktencheck"):
+        st.markdown(components.FACTCHECK_RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
 # SEGMENTED CONTROL OVERRIDE — injected late so it wins over
@@ -84,9 +119,3 @@ st.markdown(
     f"<style>{styles.segmented_control_override(theme)}</style>",
     unsafe_allow_html=True,
 )
-
-# ─────────────────────────────────────────────────────────────
-# RESEARCH FOOTER
-# ─────────────────────────────────────────────────────────────
-with st.expander("Wissenschaftliche Grundlagen"):
-    st.markdown(components.RESEARCH_FOOTER_HTML, unsafe_allow_html=True)
