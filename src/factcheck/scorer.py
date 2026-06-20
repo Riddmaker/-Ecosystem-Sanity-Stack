@@ -99,7 +99,7 @@ class FactCheckScorer:
         raw = self._query(FC_JUDGE_SYSTEM, user_msg)
         chosen = int(raw.get("chosen", 1))
         chosen = max(1, min(chosen, len(candidates)))
-        return {"chosen": chosen, "reasoning": raw.get("reasoning", "")}
+        return {"chosen": chosen, "reasoning": _as_text(raw.get("reasoning", ""))}
 
     # ------------------------------------------------------------------
     # Grounded verdict
@@ -176,12 +176,12 @@ class FactCheckScorer:
         if label not in _VALID_LABELS:
             label = "NEI"
         score = 0.0 if label == "NEI" else _clamp(raw.get("score", 0))
-        return {"label": label, "score": score, "reasoning": raw.get("reasoning", "")}
+        return {"label": label, "score": score, "reasoning": _as_text(raw.get("reasoning", ""))}
 
     def _score_closed(self, system: str, title: str, content: str) -> dict:
         user_msg = FC_CLOSED_USER.format(title=title, content=content)
         raw = self._query(system, user_msg)
-        return {"score": _clamp(raw.get("score", 0)), "reasoning": raw.get("reasoning", "")}
+        return {"score": _clamp(raw.get("score", 0)), "reasoning": _as_text(raw.get("reasoning", ""))}
 
     def _query(self, system: str, user: str) -> dict:
         return self._client.query_json(system, user)
@@ -189,6 +189,22 @@ class FactCheckScorer:
 
 def _clamp(value) -> float:
     return max(0.0, min(10.0, float(value)))
+
+
+def _as_text(value) -> str:
+    """Coerce a reasoning field to a string.
+
+    Mistral occasionally returns a sub-score's reasoning as a nested object or
+    list instead of a plain string; flatten it so the Pydantic schema (and the
+    dashboard) get text either way.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return " ".join(_as_text(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return " ".join(_as_text(v) for v in value)
+    return str(value) if value is not None else ""
 
 
 def fact_check_to_db_fields(result: FactCheckResult, judge_reasoning: str = "") -> dict:

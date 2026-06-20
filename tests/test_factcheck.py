@@ -225,6 +225,29 @@ def test_score_invalid_label_falls_back_to_nei(monkeypatch):
     assert res.fact_check.accuracy_counted is False
 
 
+def test_score_coerces_dict_reasoning_to_string(monkeypatch):
+    # Mistral sometimes returns reasoning as a nested object — must not crash.
+    monkeypatch.setattr("src.factcheck.scorer.MistralJSONClient", _FakeLargeClient)
+    from src.factcheck.scorer import FactCheckScorer
+    import src.factcheck.scorer as scorer_mod
+
+    def dict_reasoning(self, system, user, retries=4):
+        if "MISSING CONTEXT" in system:
+            return {"score": 7, "reasoning": {"eindruck": "verzerrt", "fehlt": "Kontext"}}
+        if "MISLEADING FRAMING" in system:
+            return {"score": 6, "reasoning": ["teil eins", "teil zwei"]}
+        if "FACTUAL ACCURACY" in system:
+            return {"label": "NEI", "score": 0, "reasoning": "nei"}
+        return {}
+
+    monkeypatch.setattr(scorer_mod.MistralJSONClient, "query_json", dict_reasoning, raising=False)
+    res = FactCheckScorer(api_key="x").score(title="t", content="c", claims=["x"], evidence=[])
+    assert isinstance(res.fact_check.missing_context_reasoning, str)
+    assert "verzerrt" in res.fact_check.missing_context_reasoning
+    assert isinstance(res.fact_check.misleading_framing_reasoning, str)
+    assert "teil eins" in res.fact_check.misleading_framing_reasoning
+
+
 def test_judge_clamps_out_of_range_choice(monkeypatch):
     _FakeLargeClient.accuracy = {"label": "NEI", "score": 0, "reasoning": "nei"}
     scorer = _scorer(monkeypatch)
