@@ -34,6 +34,20 @@ settings:
       inputType: password
       required: true
       default: ""
+    # Optional — Fact-Check track (Irreführungs-Index). Leave blank to run the
+    # ragebait track only; the retrieval clients self-skip on an empty key.
+    - name: google_factcheck_api_key
+      caption: Google Fact Check Tools API Key (optional)
+      type: string
+      inputType: password
+      required: false
+      default: ""
+    - name: tavily_api_key
+      caption: Tavily API Key (optional)
+      type: string
+      inputType: password
+      required: false
+      default: ""
 
 nodes:
   # ── App server ───────────────────────────────────────────────────────────────
@@ -46,6 +60,8 @@ nodes:
     flexibleCloudlets: 4
     env:
       MISTRAL_API_KEY: ${settings.mistral_api_key}
+      GOOGLE_FACTCHECK_API_KEY: ${settings.google_factcheck_api_key}
+      TAVILY_API_KEY: ${settings.tavily_api_key}
       DATABASE_URL: postgresql://webadmin:${settings.pg_password}@${nodes.sqldb[0].intIP}:5432/postgres
       POSTGRES_HOST: ${nodes.sqldb[0].intIP}
       POSTGRES_USER: webadmin

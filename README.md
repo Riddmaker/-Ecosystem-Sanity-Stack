@@ -325,9 +325,16 @@ POSTGRES_USER=<pg user>
 POSTGRES_PASSWORD=<pg password>
 POSTGRES_DB=<db name>
 POSTGRES_PORT=5432
+
+# Optional — only if the Fact-Check track is enabled (FACTCHECK_ENABLED).
+# Leave unset to run the ragebait track only; retrieval self-skips on a blank key.
+GOOGLE_FACTCHECK_API_KEY=your_google_factcheck_api_key
+TAVILY_API_KEY=your_tavily_api_key
 ```
 
 The PostgreSQL hostname, user, and password are shown in the Jelastic DB node details panel.
+The two fact-check keys are also declared in `jelastic.jps.example`, so a fresh install/recreate
+from the manifest prompts for them.
 
 **4. Web port**
 
