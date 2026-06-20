@@ -37,6 +37,26 @@ def extract_verdict(reasoning: str) -> str:
     return reasoning
 
 
+def clip_reasoning(reasoning: str, limit: int = 150) -> str:
+    """Frontend-only shortening: the full reasoning stays in the DB, but the
+    card shows a concise version. Honours a `→` verdict if present, otherwise
+    trims to the first sentence(s) under `limit` chars (never mid-word)."""
+    text = extract_verdict(reasoning or "").strip()
+    # Strip raw markdown emphasis and a leading "1." / "2)" enumeration the model
+    # sometimes emits — they render literally in the card.
+    text = text.replace("**", "").replace("##", "").strip()
+    text = re.sub(r'^\s*\d+[.)]\s*', '', text)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    for sep in (". ", "! ", "? "):
+        idx = cut.rfind(sep)
+        if idx > limit * 0.5:
+            return cut[:idx + 1].strip()
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp > 0 else cut).rstrip(" ,;:") + " …"
+
+
 def format_reasoning(text: str) -> str:
     """Bold field name labels and add line breaks between reasoning sections."""
     for key, label in FIELD_LABELS.items():
@@ -345,7 +365,7 @@ def render_factcheck_highlight(fc: dict) -> str:
             f'<div style="margin-bottom:0.75rem;">'
             f'<div style="font-size:var(--fs-meta);font-weight:600;color:{sc};'
             f'text-transform:uppercase;letter-spacing:0.05em;margin-bottom:2px;">{head}</div>'
-            f'<div class="reasoning-text">{extract_verdict(sr)}</div></div>'
+            f'<div class="reasoning-text">{clip_reasoning(sr)}</div></div>'
         )
 
     dim_row = (
@@ -422,6 +442,14 @@ def render_factcheck_evidence(fc: dict) -> str:
             f'<div style="margin-bottom:0.4rem;">{claim}</div>{src_html}</div>'
         )
 
+    intro = (
+        f'<div class="reader-service-cell" style="grid-column:1/-1;border-right:none;'
+        f'font-size:var(--fs-meta);color:{T3};line-height:1.6;">'
+        f'<strong style="color:{T2};">Prüf selbst nach.</strong> Das sind die überprüfbaren '
+        f'Aussagen aus dem Artikel, die wir gegen externe Quellen abgeglichen haben — die Grundlage '
+        f'für das Urteil oben. Klick eine Quelle, um die Beleglage selbst nachzuvollziehen.</div>'
+    )
+
     note = ("" if any_evidence else
             f'<div class="reader-service-cell" style="grid-column:1/-1;border-right:none;'
             f'font-size:var(--fs-meta);color:{T3};">'
@@ -430,8 +458,8 @@ def render_factcheck_evidence(fc: dict) -> str:
 
     return (
         f'<div class="reader-service-wrap">'
-        f'<div class="reader-service-header">Geprüfte Behauptungen &amp; Belege</div>'
-        f'<div class="reader-service-body" style="grid-template-columns:1fr;">{rows}{note}</div>'
+        f'<div class="reader-service-header">Belege — so kannst du selbst nachprüfen</div>'
+        f'<div class="reader-service-body" style="grid-template-columns:1fr;">{intro}{rows}{note}</div>'
         f'</div>'
     )
 
@@ -447,17 +475,16 @@ def render_factcheck_empty_state() -> str:
 
 PINO_SHOUTOUT_HTML = """
 <div class="reader-service-wrap">
-  <div class="reader-service-header">Was du sonst tun kannst</div>
+  <div class="reader-service-header">Dein Werkzeug für den Alltag</div>
   <div class="reader-service-body" style="grid-template-columns:1fr;">
     <div class="reader-service-cell" style="border-right:none;">
-      <div class="reader-service-cell-label">Selbst gegenprüfen</div>
-      Dieses Dashboard prüft pro Durchlauf nur ein Beispiel. Wenn dich beim Lesen eine
-      konkrete Behauptung stutzig macht, kannst du sie sofort selbst gegenchecken:
+      Dieses Dashboard prüft pro Durchlauf nur ein Beispiel — den Rest machst du selbst. Wenn dich
+      beim Lesen irgendwo eine konkrete Behauptung stutzig macht, prüf sie direkt im Browser mit
       <a href="https://chromewebstore.google.com/detail/pino-fact-checker/olfaipihfeomkedngnkkmappbojmlmml"
-         target="_blank" style="color:var(--text-primary);font-weight:500;">Pino – Fact Checker ↗</a>
-      ist eine Browser-Erweiterung, die markierten Text per Rechtsklick KI-gestützt prüft und
-      Quellen dazu anzeigt. Wie dieses Werkzeug ersetzt sie keine eigene Urteilskraft — sie ist
-      ein schneller erster Anhaltspunkt, den du an den verlinkten Quellen selbst überprüfst.
+         target="_blank" style="color:var(--text-primary);font-weight:500;">Pino – Fact Checker ↗</a>:
+      markierten Text per Rechtsklick KI-gestützt gegenchecken, mit Quellen dazu. Ein schneller
+      erster Anhaltspunkt für den Alltag — den du, wie dieses Dashboard auch, an den verlinkten
+      Quellen selbst überprüfst. Kein Urteil ersetzt deine eigene.
     </div>
   </div>
 </div>
@@ -488,7 +515,7 @@ HEADER_HTML = """
   <span style="font-size:1.4rem;font-weight:600;color:var(--text-primary);">Media Sanity Dashboard</span>
 </div>
 <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.1rem;">
-  Misst fabrizierte Emotion in Schweizer Nachrichtenmedien — stündlich aktualisiert.
+  Misst Medienhygiene in Schweizer Nachrichtenmedien — von fabrizierter Emotion bis irreführender Faktenlage.
 </div>
 <div style="font-size:0.65rem;color:var(--text-muted);">
   KI-generiert · keine menschliche Prüfung ·

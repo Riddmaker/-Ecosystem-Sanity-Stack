@@ -30,6 +30,8 @@ from src.factcheck.prompts import (
     MISSING_CONTEXT_SYSTEM,
     FC_JUDGE_SYSTEM,
     FC_JUDGE_USER,
+    FC_READER_SERVICE_SYSTEM,
+    FC_READER_SERVICE_USER,
 )
 
 log = logging.getLogger(__name__)
@@ -164,6 +166,29 @@ class FactCheckScorer:
             evidence=evidence,
             reasoning=reasoning,
         )
+
+    def generate_reader_service(self, title: str, content: str, result: FactCheckResult) -> dict:
+        """
+        "Kern des Themas" extract for the fact-checked winner — same
+        facts/stake/action contract as the ragebait reader service, grounded on
+        the verdict + retrieved evidence. Returns {"facts","stake","action"}.
+        """
+        fc = result.fact_check
+        user_msg = FC_READER_SERVICE_USER.format(
+            title=title,
+            content=content[:MAX_CONTENT_CHARS],
+            score=result.fact_check_score,
+            accuracy_label=fc.factual_accuracy_label,
+            framing=fc.misleading_framing,
+            context=fc.missing_context,
+            evidence=render_evidence(result.evidence),
+        )
+        raw = self._query(FC_READER_SERVICE_SYSTEM, user_msg)
+        return {
+            "facts":  _as_text(raw.get("facts", "")),
+            "stake":  _as_text(raw.get("stake", "")),
+            "action": _as_text(raw.get("action", "")),
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers

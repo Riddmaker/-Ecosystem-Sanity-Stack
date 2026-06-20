@@ -250,7 +250,24 @@ def _fc_factcheck() -> Optional[tuple[ArticleModel, FactCheckResult]]:
         log.info("[FC] Irreführungs-Index=%.1f (accuracy=%s, framing=%.1f, context=%.1f)",
                  result.fact_check_score, result.fact_check.factual_accuracy_label,
                  result.fact_check.misleading_framing, result.fact_check.missing_context)
+        _attach_fc_reader_service(scorer, session, winner, result)
         return winner, result
+
+
+def _attach_fc_reader_service(scorer, session, winner, result) -> None:
+    """Generate the "Kern des Themas" extract for the fact-checked winner and
+    merge it into fact_check_details. Skipped for thin content (hallucination risk)."""
+    content_words = len((winner.content or "").split())
+    if content_words < config.MIN_READER_SERVICE_WORDS:
+        return
+    try:
+        rs = scorer.generate_reader_service(
+            title=winner.title or "", content=winner.content or "", result=result
+        )
+        winner.fact_check_details = {**(winner.fact_check_details or {}), "reader_service": rs}
+        session.flush()
+    except Exception:
+        log.exception("[FC] reader service failed")
 
 
 def _gate(scorer: MediaScorer, gate_candidates: list[ArticleModel]) -> list[ArticleModel]:

@@ -190,6 +190,8 @@ class _FakeLargeClient:
             return {"score": 4, "reasoning": "context"}
         if "Chef vom Dienst" in system:
             return {"chosen": 99, "reasoning": "judge"}
+        if "Redakteur" in system:   # reader service
+            return {"facts": "fakten", "stake": "stake", "action": {"a": "tu dies", "b": "und das"}}
         return {}
 
 
@@ -270,6 +272,32 @@ def test_fact_check_to_db_fields_shape(monkeypatch):
     }
     assert fields["fact_check_details"]["sub_scores"]["factual_accuracy_label"] == "REFUTED"
     assert fields["fact_check_details"]["judge_reasoning"] == "because"
+
+
+def test_generate_reader_service_coerces_dict_action(monkeypatch):
+    _FakeLargeClient.accuracy = {"label": "NEI", "score": 0, "reasoning": "nei"}
+    scorer = _scorer(monkeypatch)
+    res = scorer.score(title="t", content="c", claims=["x"], evidence=[])
+    rs = scorer.generate_reader_service(title="t", content="c", result=res)
+    assert set(rs) == {"facts", "stake", "action"}
+    # dict action flattened to a string
+    assert isinstance(rs["action"], str)
+    assert "tu dies" in rs["action"] and "und das" in rs["action"]
+
+
+# ── Frontend reasoning shortening ─────────────────────────────────────────────
+
+def test_clip_reasoning_shortens_and_honours_arrow():
+    from src.frontend.components import clip_reasoning
+    # short text returned as-is
+    assert clip_reasoning("kurz und knapp") == "kurz und knapp"
+    # arrow verdict preferred
+    assert clip_reasoning("PF=Ja, UQ=Ja → Das ist das Urteil.") == "Das ist das Urteil."
+    # long text trimmed under the limit, never mid-word, with ellipsis or sentence end
+    long = "Erster Satz ist hier. " + ("wort " * 80)
+    out = clip_reasoning(long, limit=60)
+    assert len(out) <= 64
+    assert out.startswith("Erster Satz ist hier.")
 
 
 # ── Cadence gate (pipeline orchestration) ─────────────────────────────────────
