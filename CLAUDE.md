@@ -123,11 +123,13 @@ docker compose up -d            # db + frontend + scheduler
   Cloudflare Zero Trust dashboard, so the prod env serves the public URL **without a public
   IP**. Token is set on the cp node, never committed.
 
-## Fact-Check track (Irreführungs-Index) — BUILT, off by default
+## Fact-Check track (Irreführungs-Index) — BUILT, ON by default
 A **second scoring track** in `src/factcheck/`, surfaced as the **Faktencheck** dashboard tab
 alongside the Ragebait Index, reusing the **same scraped articles** (scrape once, two tracks).
-Gated behind `config.FACTCHECK_ENABLED` (default `False`) — while off, the ragebait pipeline and
-local dev are byte-for-byte unchanged. Open-book flow:
+Gated behind `config.FACTCHECK_ENABLED` (default `True`); set it `False` to run the ragebait track
+alone. The retrieval clients self-skip on missing keys, so it won't crash without
+`GOOGLE_FACTCHECK_API_KEY` / `TAVILY_API_KEY` — but it still spends Mistral calls each run and only
+produces real verdicts (vs. NEI) when both keys are set. Open-book flow:
 - **Pre-flag** suspicion of unverified/unchecked claims (Mistral Small) — `pre_flag.py`, stage 3b.
 - **Winner-only** (cost control): a judge picks the single best of the top-5 suspicious, and only
   that article gets claim extraction (`claims.py`) + Tavily web retrieval — `_fc_factcheck` in
@@ -146,5 +148,6 @@ Full design, phase history and study anchors live in agent memory (`project-fact
 - **DB gotcha:** `create_all()` does NOT ALTER existing tables — the fact-check columns are added
   by an idempotent `ADD COLUMN IF NOT EXISTS` migration in `db/connection.py::run_migrations()`
   (Postgres-only, wired into `init_db()`), not by the model change alone.
-- **Enabling = prod cost + a public verdict:** flip `FACTCHECK_ENABLED=True` only with both
-  retrieval keys set on the target env; every merge to `main` is a production deploy.
+- **On by default = prod cost + a public verdict:** enabled in `config.py` (set
+  `FACTCHECK_ENABLED=False` to disable). Keep both retrieval keys set on any env where it runs;
+  every merge to `main` is a production deploy.

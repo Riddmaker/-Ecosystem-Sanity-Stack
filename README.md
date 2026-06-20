@@ -41,12 +41,12 @@ evidence is thin and is then excluded from the mean — the tool never asserts a
 ### Scoring pipeline
 
 ```
-Tier 1 — Mistral Small    all new articles → pre_score (ragebait) [+ fc pre-flag, optional]
+Tier 1 — Mistral Small    all new articles → pre_score (ragebait) [+ fc pre-flag, on by default]
 Tier 2 — Mistral Large    top candidates  → 4 parallel sub-scores → composite (ragebait)
 Judge  — Mistral Large    compare top results → pick dashboard highlight
 Reader Service            factual extract for the judge-selected article
 
-Fact-Check track (optional, FACTCHECK_ENABLED):  winner-only, throttled
+Fact-Check track (on by default, FACTCHECK_ENABLED; needs retrieval keys):  winner-only, throttled
   pre-flag (Small) → judge picks 1 of top-5 → claim extraction (Small)
   → evidence: Google Fact Check Tools (free) then Tavily (web) → 3 Large sub-scores → mean
 ```
@@ -180,10 +180,11 @@ GOOGLE_FACTCHECK_API_KEY=your_google_factcheck_api_key_here
 TAVILY_API_KEY=your_tavily_api_key_here
 ```
 
-#### Enabling the Fact-Check track (optional)
+#### Fact-Check track API keys (on by default)
 
-The second track is **off by default** (`FACTCHECK_ENABLED = False` in `src/config.py`). To turn
-it on:
+The second track is **on by default** (`FACTCHECK_ENABLED = True` in `src/config.py`; set it
+`False` to disable). For real verdicts it needs two API keys — without them the retrieval backends
+self-skip, so the track still runs but abstains (NEI). Get the keys:
 
 1. **Get the keys** (both have free tiers):
    - **Google Fact Check Tools** — in [Google Cloud Console](https://console.cloud.google.com),
@@ -192,7 +193,8 @@ it on:
    - **Tavily** — sign up at [app.tavily.com](https://app.tavily.com) and copy your `tvly-…` key
      (~1000 free credits/month).
 2. Put both keys in `.env` (above).
-3. Set `FACTCHECK_ENABLED = True` in `src/config.py`.
+3. That's it — the track is already enabled. (To turn it **off** instead, set
+   `FACTCHECK_ENABLED = False` in `src/config.py`.)
 
 It is **winner-only and throttled** (`FACTCHECK_EVERY_N_RUNS`, default every ~6h) so Tavily stays
 inside the free tier: only the single judge-picked article per run hits the paid web search
@@ -326,8 +328,8 @@ POSTGRES_PASSWORD=<pg password>
 POSTGRES_DB=<db name>
 POSTGRES_PORT=5432
 
-# Optional — only if the Fact-Check track is enabled (FACTCHECK_ENABLED).
-# Leave unset to run the ragebait track only; retrieval self-skips on a blank key.
+# Fact-Check track is ON by default — set both keys for real verdicts (without them it
+# self-skips and abstains/NEI). Set FACTCHECK_ENABLED=False in src/config.py to disable.
 GOOGLE_FACTCHECK_API_KEY=your_google_factcheck_api_key
 TAVILY_API_KEY=your_tavily_api_key
 ```
