@@ -471,6 +471,7 @@ ecosystem-sanity-stack/
 ├── src/
 │   ├── pipeline.py              # core pipeline logic (importable)
 │   ├── config.py                # cross-cutting tunables (thresholds, windows)
+│   ├── strings.py               # ALL prompts + UI text (German active; English mirror commented)
 │   ├── connectors/
 │   │   ├── abstract/            # BaseScraperConnector, RSSConnector, Article model
 │   │   └── specific_scraper/    # 20min · watson · blick · nau
@@ -481,9 +482,7 @@ ecosystem-sanity-stack/
 │   ├── scoring/
 │   │   ├── llm_client.py        # shared Mistral JSON client (retry, rate limits)
 │   │   ├── pre_scorer.py        # Tier-1: Mistral Small
-│   │   ├── pre_prompts.py       # Tier-1 prompt
 │   │   ├── scorer.py            # Tier-2 + judge: Mistral Large
-│   │   ├── prompts.py           # Tier-2 prompts (German, few-shot)
 │   │   ├── schemas.py           # Pydantic schemas
 │   │   └── throttle.py          # rate limiter singletons
 │   ├── factcheck/               # Fact-Check track (Irreführungs-Index, optional)
@@ -491,7 +490,6 @@ ecosystem-sanity-stack/
 │   │   ├── claims.py            # claim extraction (SAFE/Claimify style)
 │   │   ├── retrieval.py         # Google Fact Check Tools + Tavily (key-guarded)
 │   │   ├── scorer.py            # judge + 3 Large sub-scores → Irreführungs-Index
-│   │   ├── prompts.py           # German pre-flag / claim / sub-score / judge prompts
 │   │   └── schemas.py           # Pydantic schemas (evidence, verdict)
 │   └── frontend/
 │       ├── app.py               # Streamlit dashboard — st.tabs(Ragebait, Faktencheck)
@@ -517,6 +515,19 @@ ecosystem-sanity-stack/
 ├── .env.example                 # environment-variable template
 └── requirements.txt
 ```
+
+---
+
+## Localisation (running in another language)
+
+All human- and model-facing text — every Mistral prompt template **and** every dashboard
+string — lives in a single file, [`src/strings.py`](src/strings.py). The live product runs in
+German (de-CH); a complete **English mirror** sits fully commented out at the bottom of the same
+file, defining the same names. To run the whole stack in English (or to fork into another
+language), comment out the German block and uncomment the English one — most editors block-toggle
+a selection in one shortcut. No logic changes: the modules import names from `src.strings` and only
+fill in `{placeholders}`. Prompt text is byte-sensitive (Tier-2 runs at temperature 0.0 + seed 42),
+so keep both language copies in sync when you edit a prompt.
 
 ---
 

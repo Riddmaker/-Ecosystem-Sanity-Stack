@@ -11,7 +11,7 @@ from typing import Optional
 
 from src.scoring.llm_client import MistralJSONClient
 from src.scoring.schemas import PreScoreResult
-from src.scoring.pre_prompts import PRE_SCREEN_SYSTEM, PRE_SCREEN_USER
+from src.strings import PRE_SCREEN_SYSTEM, PRE_SCREEN_USER
 from src.scoring.throttle import small_limiter
 
 # Pin the older Small snapshot (June 2025) rather than the floating -latest

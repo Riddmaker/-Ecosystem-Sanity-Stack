@@ -14,7 +14,7 @@ from src import config
 from src.scoring.llm_client import MistralJSONClient
 from src.scoring.throttle import small_limiter
 from src.factcheck.schemas import ClaimExtraction
-from src.factcheck.prompts import CLAIM_EXTRACT_SYSTEM, CLAIM_EXTRACT_USER
+from src.strings import CLAIM_EXTRACT_SYSTEM, CLAIM_EXTRACT_USER
 
 log = logging.getLogger(__name__)
 

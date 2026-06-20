@@ -17,7 +17,7 @@ from typing import Optional
 from src.scoring.llm_client import MistralJSONClient
 from src.scoring.throttle import small_limiter
 from src.factcheck.schemas import FcPreFlagResult
-from src.factcheck.prompts import PRE_FLAG_SYSTEM, PRE_FLAG_USER
+from src.strings import PRE_FLAG_SYSTEM, PRE_FLAG_USER
 
 # Same cheap, high-RPS Small snapshot the ragebait pre-screen uses (see
 # pre_scorer.PRE_SCORE_MODEL_ID). Kept as its own constant so the two tracks

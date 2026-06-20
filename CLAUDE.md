@@ -54,6 +54,12 @@ docker compose up -d            # db + frontend + scheduler
   _full_score → _pick_winner`. Sources are a `CONNECTORS` registry; add new sources there.
 - `src/config.py` — all cross-cutting tunables (gate threshold, candidate limit, paywall
   marker, word minimums, scheduler lookback). **Put magic numbers here, not inline.**
+- `src/strings.py` — **single source of truth for ALL human- and model-facing text**: every
+  Mistral prompt template (both tracks) and every dashboard string. German (de-CH) is active;
+  a complete English mirror sits **fully commented out** at the bottom of the same file, defining
+  the same names, so a forker can run the whole stack in English by commenting the German block
+  and uncommenting the English one. **Put all copy here, not inline** — the scoring/frontend
+  modules import names from `src.strings` and only fill in `{placeholders}`.
 - `src/connectors/abstract/scraper_connector.py` — `BaseScraperConnector` owns ONE shared
   crawl loop (template method). Concrete scrapers declare class attrs
   (`SOURCE`/`BASE_URL`/`DEFAULT_SECTIONS`/`CRAWL_DELAY`) and implement
@@ -73,6 +79,9 @@ docker compose up -d            # db + frontend + scheduler
 ## Conventions
 - Use the `logging` module (`log = logging.getLogger(__name__)`), not `print`.
 - Keep tunables in `src/config.py`.
+- Keep all user/model-facing text in `src/strings.py` (never hard-code copy in logic or HTML).
+  Editing a prompt = edit the German constant there; mirror the change in the commented English
+  copy so the two languages stay in sync. Prompt text is byte-sensitive (temp 0.0 + seed 42).
 - Tier-2 scoring is deterministic: temperature 0.0 + seed 42.
 - Rate limits live in `src/scoring/throttle.py` (Large ~1 req/s, Small ~5 req/s). Live
   runs will hit 429s and back off — that's expected, not a bug.
