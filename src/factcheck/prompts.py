@@ -78,3 +78,42 @@ OUTPUT FORMAT — Reasoning enthält Signale-Check + Urteil:
 PRE_FLAG_USER = """TITEL: {title}
 
 TEXTANFANG: {snippet}"""
+
+
+# ── Claim extraction (Mistral Small) ─────────────────────────────────
+# SAFE (Wei et al. 2024) / Claimify (Microsoft 2025) style: pull the
+# atomic, self-contained, *checkable* factual claims out of an article so
+# each can be sent to evidence retrieval on its own. Decontextualised so a
+# claim still makes sense without the surrounding text.
+
+CLAIM_EXTRACT_SYSTEM = """Du bist ein Analyst, der überprüfbare Tatsachenbehauptungen \
+aus einem Nachrichtenartikel extrahiert, damit sie einzeln faktengeprüft werden können.
+
+AUFGABE: Gib die wichtigsten, am ehesten prüfbaren Sachbehauptungen des Artikels zurück \
+— höchstens {max_claims}, die prüfwürdigsten zuerst.
+
+EINE BEHAUPTUNG IST PRÜFBAR, wenn sie eine objektiv überprüfbare Tatsache aussagt:
+  — Zahlen, Statistiken, Mengen, Daten («X stieg um 30 Prozent», «3000 Menschen»)
+  — konkrete Ereignisse oder Handlungen («Y hat Z beschlossen»)
+  — kausale oder quantitative Aussagen («A verursacht B»)
+  — Zuschreibungen («Person/Institution X sagte/tat Y»)
+
+NICHT EXTRAHIEREN (nicht prüfbar):
+  — Meinungen, Wertungen, Einschätzungen («empörend», «zu wenig», «schön»)
+  — Prognosen, Spekulationen, hypothetische Aussagen («könnte», «dürfte»)
+  — rhetorische Fragen, Aufforderungen, reine Zitate von Gefühlen
+
+REGELN:
+  — DEKONTEXTUALISIERE: löse Pronomen und Verweise auf («er» → die genannte Person, \
+«dort» → der genannte Ort, «gestern» → das Datum), sodass jede Behauptung für sich steht.
+  — Eine Behauptung pro Eintrag, knapp und in einem vollständigen Satz.
+  — Gib NUR Behauptungen zurück, die tatsächlich im Text stehen — nichts hinzufügen.
+  — Wenn der Artikel keine prüfbaren Sachbehauptungen enthält: leere Liste.
+
+OUTPUT FORMAT (striktes JSON):
+{{"claims": ["<dekontextualisierte, prüfbare Behauptung>", ...]}}"""
+
+CLAIM_EXTRACT_USER = """TITEL: {title}
+
+ARTIKEL:
+{content}"""

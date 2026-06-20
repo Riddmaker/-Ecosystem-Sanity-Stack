@@ -27,3 +27,33 @@ class FcPreFlagResult(BaseModel):
         if isinstance(data, dict) and "reasoning" not in data and "reason" in data:
             data["reasoning"] = data.pop("reason")
         return data
+
+
+class ClaimExtraction(BaseModel):
+    """Output of claim extraction (Mistral Small) — checkable claims pulled from an article."""
+    claims: list[str] = Field(default_factory=list)
+
+
+class FactCheckReview(BaseModel):
+    """
+    One human fact-checker verdict from the Google Fact Check Tools API
+    (a ClaimReview). Already vetted by a professional fact-checker — the
+    strongest evidence we retrieve. JSONB-serialisable for fact_check_details.
+    """
+    publisher: str = ""        # claimReview.publisher.name
+    site: str = ""             # claimReview.publisher.site
+    url: str = ""              # link to the published fact-check
+    title: str = ""
+    rating: str = ""           # claimReview.textualRating, e.g. "Falsch"
+    review_date: str = ""      # claimReview.reviewDate (ISO string)
+    language: str = ""         # claimReview.languageCode
+    claim_text: str = ""       # the claim the fact-check matched
+    claimant: str = ""         # who originally made the claim
+
+
+class WebEvidence(BaseModel):
+    """One ranked web result from Tavily. JSONB-serialisable for fact_check_details."""
+    title: str = ""
+    url: str = ""
+    content: str = ""          # clean snippet Tavily extracted
+    score: float = 0.0         # Tavily relevance score (NOT a credibility score)
