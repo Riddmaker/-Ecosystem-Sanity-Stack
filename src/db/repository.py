@@ -109,6 +109,16 @@ class ArticleRepository:
             existing.score_model = None
             existing.score_version = None
             existing.score_computed_at = None
+            # Reset the fact-check track too — same article, new content
+            existing.fc_pre_score = None
+            existing.fc_pre_reasoning = None
+            existing.fc_pre_model = None
+            existing.fc_pre_at = None
+            existing.fact_check_score = None
+            existing.fact_check_details = None
+            existing.fact_check_model = None
+            existing.fact_check_version = None
+            existing.fact_check_at = None
 
         return existing, content_changed
 
@@ -133,5 +143,28 @@ class ArticleRepository:
                 ArticleModel.ragebait_score.is_(None),
             )
             .order_by(desc(ArticleModel.pre_score))
+            .limit(limit)
+        ))
+
+    # ── Fact-Check track (Irreführungs-Index) ─────────────────────────────────
+    # Mirror of the two ragebait selectors above, against the fc_* columns.
+
+    def get_fc_unflagged(self, urls: list[str] | None = None) -> list[ArticleModel]:
+        """Return articles not yet fact-check pre-flagged, optionally filtered by URL list."""
+        q = select(ArticleModel).where(ArticleModel.fc_pre_score.is_(None))
+        if urls:
+            q = q.where(ArticleModel.url.in_(urls))
+        return list(self.session.scalars(q))
+
+    def get_fc_suspicious_above_threshold(self, min_score: float = 3.0, limit: int = 5) -> list[ArticleModel]:
+        """Return the most-suspicious pre-flagged articles not yet fact-checked."""
+        return list(self.session.scalars(
+            select(ArticleModel)
+            .where(
+                ArticleModel.fc_pre_score.isnot(None),
+                ArticleModel.fc_pre_score >= min_score,
+                ArticleModel.fact_check_score.is_(None),
+            )
+            .order_by(desc(ArticleModel.fc_pre_score))
             .limit(limit)
         ))
