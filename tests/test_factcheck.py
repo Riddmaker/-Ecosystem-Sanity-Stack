@@ -8,11 +8,14 @@ Covers:
   - domain_of() host normalisation.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from src.factcheck import retrieval
 from src.factcheck.claims import ClaimExtractor
 from src.factcheck.retrieval import GoogleFactCheckClient, TavilyClient, domain_of
+from src.pipeline import _factcheck_due_since
 
 
 # ── Fake HTTP plumbing ────────────────────────────────────────────────────────
@@ -244,3 +247,23 @@ def test_fact_check_to_db_fields_shape(monkeypatch):
     }
     assert fields["fact_check_details"]["sub_scores"]["factual_accuracy_label"] == "REFUTED"
     assert fields["fact_check_details"]["judge_reasoning"] == "because"
+
+
+# ── Cadence gate (pipeline orchestration) ─────────────────────────────────────
+
+def test_cadence_always_due_when_disabled_or_first_run():
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
+    # cadence effectively off
+    assert _factcheck_due_since(now - timedelta(hours=1), now, 1) is True
+    # nothing has run yet
+    assert _factcheck_due_since(None, now, 6) is True
+
+
+def test_cadence_skips_within_window_runs_after():
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
+    # last run 2h ago, cadence 6h → not due yet
+    assert _factcheck_due_since(now - timedelta(hours=2), now, 6) is False
+    # last run 6h ago → due (>= 6 - 0.5)
+    assert _factcheck_due_since(now - timedelta(hours=6), now, 6) is True
+    # 5.5h ago hits the slack boundary exactly → due
+    assert _factcheck_due_since(now - timedelta(hours=5, minutes=30), now, 6) is True

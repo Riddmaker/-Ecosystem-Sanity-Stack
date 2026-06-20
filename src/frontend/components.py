@@ -105,13 +105,13 @@ def render_highlight(latest: dict) -> str:
     # Shared cell styles
     C1 = f'padding:1rem 1rem 1rem 0;border-right:1px solid {BD};text-align:center;'
     C2 = f'padding:1rem 1.4rem;border-right:1px solid {BD};'
-    C3 = f'padding:1rem 0 1rem 1.4rem;'
+    C3 = 'padding:1rem 0 1rem 1.4rem;'
     ROW_BORDER = f'border-bottom:1px solid {BDL};'
 
     # Compact cell styles for the title row (less vertical padding)
     C1h = f'padding:0.5rem 1rem 0.5rem 0;border-right:1px solid {BD};text-align:center;'
     C2h = f'padding:0.5rem 1.4rem;border-right:1px solid {BD};'
-    C3h = f'padding:0.5rem 0 0.5rem 1.4rem;'
+    C3h = 'padding:0.5rem 0 0.5rem 1.4rem;'
 
     # ── Row 1: title | Begründung header
     row1 = (
@@ -289,11 +289,11 @@ def render_factcheck_highlight(fc: dict) -> str:
 
     C1  = f'padding:1rem 1rem 1rem 0;border-right:1px solid {BD};text-align:center;'
     C2  = f'padding:1rem 1.4rem;border-right:1px solid {BD};'
-    C3  = f'padding:1rem 0 1rem 1.4rem;'
+    C3  = 'padding:1rem 0 1rem 1.4rem;'
     ROW_BORDER = f'border-bottom:1px solid {BDL};'
     C1h = f'padding:0.5rem 1rem 0.5rem 0;border-right:1px solid {BD};text-align:center;'
     C2h = f'padding:0.5rem 1.4rem;border-right:1px solid {BD};'
-    C3h = f'padding:0.5rem 0 0.5rem 1.4rem;'
+    C3h = 'padding:0.5rem 0 0.5rem 1.4rem;'
 
     # Row 1: Scores | title | Begründung
     row1 = (

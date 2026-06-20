@@ -155,6 +155,19 @@ def _fc_prescreen(new_or_updated_urls: list[str]) -> None:
                 log.exception("[fc] Pre-flag failed: %s", (article.title or "")[:60])
 
 
+def _factcheck_due_since(latest: Optional[datetime], now: datetime, every_n_runs: int) -> bool:
+    """Pure cadence decision (unit-testable): is a fact-check run due?
+
+    Due if cadence is effectively off (<=1), nothing has run yet, or the newest
+    fact-check is at least (every_n_runs - 0.5) hours old. The 0.5h slack lets a
+    slightly-late :00 run still count.
+    """
+    if every_n_runs <= 1 or latest is None:
+        return True
+    elapsed_h = (now - latest).total_seconds() / 3600.0
+    return elapsed_h >= (every_n_runs - 0.5)
+
+
 def _factcheck_due() -> bool:
     """
     Throttle the fact-check track to ~every config.FACTCHECK_EVERY_N_RUNS hours.
@@ -162,15 +175,11 @@ def _factcheck_due() -> bool:
     fact_check_at instead of an in-process counter, so winner-only Tavily stays
     inside the free tier even though each run is a fresh process.
     """
-    n = config.FACTCHECK_EVERY_N_RUNS
-    if n <= 1:
+    if config.FACTCHECK_EVERY_N_RUNS <= 1:
         return True
     with get_session() as session:
         latest = ArticleRepository(session).latest_fact_check_at()
-    if latest is None:
-        return True
-    elapsed_h = (datetime.now(timezone.utc) - latest).total_seconds() / 3600.0
-    return elapsed_h >= (n - 0.5)   # 0.5h slack for a slightly-late :00 run
+    return _factcheck_due_since(latest, datetime.now(timezone.utc), config.FACTCHECK_EVERY_N_RUNS)
 
 
 def _fc_factcheck() -> Optional[tuple[ArticleModel, FactCheckResult]]:

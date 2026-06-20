@@ -8,13 +8,15 @@ Deploy it for any news outlet in any country. Point it at your local news source
 
 ## What it does
 
-The dashboard scores news articles on a single axis derived from four research-backed sub-scores:
+The dashboard surfaces **two independent scoring tracks** over the same scraped articles
+(scrape once, score twice), shown as two tabs. Both run higher = worse.
 
-| Dimension | Question | Direction |
+| Track | Question | Direction |
 |---|---|---|
 | **Ragebait Index** | Is this emotion manufactured or authentic? | Higher = more manufactured (worse) |
+| **Irreführungs-Index** *(optional)* | Do the article's checkable claims hold up? | Higher = more misleading (worse) |
 
-The four sub-scores map directly to peer-reviewed clickbait detection frameworks:
+#### Ragebait Index — four sub-scores (closed-book, Mistral)
 
 | Sub-score | Research basis | What it detects |
 |---|---|---|
@@ -23,13 +25,30 @@ The four sub-scores map directly to peer-reviewed clickbait detection frameworks
 | `emotional_inflation` | Potthast et al. (2016) | Emotional adjectives without factual backing |
 | `narrative_exploitation` | Brady et al. (2017) | Moral outrage farming — villain/victim framing |
 
+#### Irreführungs-Index — three sub-scores (open-book: retrieves external evidence)
+
+The name is the standard German fact-checking verdict term ("irreführend"); the mean of three
+sub-scores is the index. **Factual Accuracy abstains to NEI** (FEVER's *NotEnoughInfo*) when the
+evidence is thin and is then excluded from the mean — the tool never asserts a named outlet
+"lies" without proof.
+
+| Sub-score | Research basis | What it detects |
+|---|---|---|
+| `factual_accuracy` | FEVER, Thorne et al. (2018) | Do retrieved sources support / refute the claims? *(open-book)* |
+| `misleading_framing` | Entman (1993) | Framing pushes a reading beyond what the facts support |
+| `missing_context` | Rogers et al. (2017) | Paltering — true statements omit context to mislead |
+
 ### Scoring pipeline
 
 ```
-Tier 1 — Mistral Small    all new articles → pre_score (cheap, fast)
-Tier 2 — Mistral Large    top candidates  → 4 parallel sub-scores → composite
+Tier 1 — Mistral Small    all new articles → pre_score (ragebait) [+ fc pre-flag, optional]
+Tier 2 — Mistral Large    top candidates  → 4 parallel sub-scores → composite (ragebait)
 Judge  — Mistral Large    compare top results → pick dashboard highlight
 Reader Service            factual extract for the judge-selected article
+
+Fact-Check track (optional, FACTCHECK_ENABLED):  winner-only, throttled
+  pre-flag (Small) → judge picks 1 of top-5 → claim extraction (Small)
+  → evidence: Google Fact Check Tools (free) then Tavily (web) → 3 Large sub-scores → mean
 ```
 
 ---
@@ -154,7 +173,30 @@ POSTGRES_DB=ecosystem_sanity
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 DATABASE_URL=postgresql://sanity:sanity@localhost:5432/ecosystem_sanity
+
+# Optional — Fact-Check track (Irreführungs-Index). The ragebait track runs
+# without these; each retrieval backend self-skips if its key is blank.
+GOOGLE_FACTCHECK_API_KEY=your_google_factcheck_api_key_here
+TAVILY_API_KEY=your_tavily_api_key_here
 ```
+
+#### Enabling the Fact-Check track (optional)
+
+The second track is **off by default** (`FACTCHECK_ENABLED = False` in `src/config.py`). To turn
+it on:
+
+1. **Get the keys** (both have free tiers):
+   - **Google Fact Check Tools** — in [Google Cloud Console](https://console.cloud.google.com),
+     enable the *Fact Check Tools API*, then create an **API key** (Credentials → Create
+     Credentials → API key). Reads only public data, so no OAuth/billing flow is needed.
+   - **Tavily** — sign up at [app.tavily.com](https://app.tavily.com) and copy your `tvly-…` key
+     (~1000 free credits/month).
+2. Put both keys in `.env` (above).
+3. Set `FACTCHECK_ENABLED = True` in `src/config.py`.
+
+It is **winner-only and throttled** (`FACTCHECK_EVERY_N_RUNS`, default every ~6h) so Tavily stays
+inside the free tier: only the single judge-picked article per run hits the paid web search
+(budget ≈ articles × claims × runs/day; keep it under ~33/day for Tavily's free 1000/month).
 
 ### 3. Start everything
 
@@ -437,14 +479,23 @@ ecosystem-sanity-stack/
 │   │   ├── prompts.py           # Tier-2 prompts (German, few-shot)
 │   │   ├── schemas.py           # Pydantic schemas
 │   │   └── throttle.py          # rate limiter singletons
+│   ├── factcheck/               # Fact-Check track (Irreführungs-Index, optional)
+│   │   ├── pre_flag.py          # Tier-1 check-worthiness pre-flag (Mistral Small)
+│   │   ├── claims.py            # claim extraction (SAFE/Claimify style)
+│   │   ├── retrieval.py         # Google Fact Check Tools + Tavily (key-guarded)
+│   │   ├── scorer.py            # judge + 3 Large sub-scores → Irreführungs-Index
+│   │   ├── prompts.py           # German pre-flag / claim / sub-score / judge prompts
+│   │   └── schemas.py           # Pydantic schemas (evidence, verdict)
 │   └── frontend/
-│       ├── app.py               # Streamlit dashboard (composition)
-│       ├── data.py              # DB queries + highlight selection
+│       ├── app.py               # Streamlit dashboard — st.tabs(Ragebait, Faktencheck)
+│       ├── data.py              # DB queries + highlight selection (both tracks)
 │       ├── components.py        # HTML builders for the dashboard cards
 │       └── styles.py            # CSS + theming
 ├── tests/
 │   ├── conftest.py              # shared fixtures + skip conditions
 │   ├── test_connectors.py       # unit tests — all 4 scrapers (no network/DB)
+│   ├── test_factcheck.py        # unit tests — retrieval, scorer (NEI mean), cadence
+│   ├── test_pipeline.py         # unit tests — source enablement + scrape watchdog
 │   ├── test_integration_scraper.py   # integration — scrape + DB upsert
 │   └── test_integration_scoring.py  # integration — pre-score + full score
 ├── migrations/
@@ -500,3 +551,16 @@ python migrations/migrate_vX_to_vY.py
 | McLaughlin, Gotlieb & Mills (2022) — Problematic News Consumption | [10.1080/10410236.2022.2106086](https://doi.org/10.1080/10410236.2022.2106086) |
 | McNaughton-Cassill & Smith (2002) — Optimism Gap | [10.1002/smi.916](https://doi.org/10.1002/smi.916) |
 | Crockett (2017) — Moral Outrage in the Digital Age | [10.1038/s41562-017-0213-3](https://doi.org/10.1038/s41562-017-0213-3) |
+
+### Fact-Check track (Irreführungs-Index)
+
+| Paper | DOI / link |
+|---|---|
+| Thorne et al. (2018) — FEVER: Fact Extraction and VERification | [aclanthology.org/N18-1074](https://aclanthology.org/N18-1074/) |
+| Entman (1993) — Framing: Toward Clarification of a Fractured Paradigm | [10.1111/j.1460-2466.1993.tb01304.x](https://doi.org/10.1111/j.1460-2466.1993.tb01304.x) |
+| Rogers et al. (2017) — Artful Paltering | [10.1037/pspi0000081](https://doi.org/10.1037/pspi0000081) |
+| Hassan et al. (2017) — ClaimBuster (check-worthiness) | [10.1145/3097983.3098131](https://doi.org/10.1145/3097983.3098131) |
+| Wardle & Derakhshan (2017) — Information Disorder (Council of Europe) | [coe.int report](https://rm.coe.int/information-disorder-toward-an-interdisciplinary-framework-for-researc/168076277c) |
+| Vosoughi, Roy & Aral (2018) — The spread of true and false news online | [10.1126/science.aap9559](https://doi.org/10.1126/science.aap9559) |
+| Lewandowsky et al. (2012) — Misinformation and Its Correction | [10.1177/1529100612451018](https://doi.org/10.1177/1529100612451018) |
+| Roozenbeek & van der Linden et al. (2022) — Psychological inoculation | [10.1126/sciadv.abo6254](https://doi.org/10.1126/sciadv.abo6254) |
