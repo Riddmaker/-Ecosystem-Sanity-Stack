@@ -47,7 +47,7 @@ SCHEDULE_LOOKBACK_HOURS = 1.5
 # evidence — so it carries extra cost and is gated behind this master
 # switch. While False the pipeline skips every fact-check stage, so the
 # ragebait track and local dev behave exactly as before.
-FACTCHECK_ENABLED = False
+FACTCHECK_ENABLED = True
 
 # Suspicion pre-flag threshold (Tier-1, Mistral Small, 0–10). An article
 # must reach this to enter fact-checking — mirrors GATE_MIN_PRE_SCORE.
