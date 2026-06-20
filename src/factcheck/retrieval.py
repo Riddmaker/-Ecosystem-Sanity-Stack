@@ -160,3 +160,36 @@ class TavilyClient:
             )
             for r in (data.get("results") or [])
         ]
+
+
+# ── Per-claim evidence orchestration (winner only) ───────────────────
+
+def gather_claim_evidence(
+    claims: list[str],
+    fct: GoogleFactCheckClient,
+    tavily: TavilyClient,
+    exclude_domains: Optional[list[str]] = None,
+) -> list[dict]:
+    """
+    For each claim: Google Fact Check Tools first (free, human-vetted); fall back
+    to Tavily web search ONLY when FCT returns nothing (credits — winner only).
+
+    Returns a JSONB-ready list of per-claim bundles:
+        [{"claim": str,
+          "fact_checks": [FactCheckReview.model_dump(), ...],
+          "web_evidence": [WebEvidence.model_dump(), ...]}]
+    Both backends self-skip when their key is missing, so this degrades to
+    empty evidence (→ the scorer abstains to NEI) rather than failing.
+    """
+    bundles: list[dict] = []
+    for claim in claims:
+        reviews = fct.search(claim)
+        web: list[WebEvidence] = []
+        if not reviews:
+            web = tavily.search(claim, exclude_domains=exclude_domains)
+        bundles.append({
+            "claim":        claim,
+            "fact_checks":  [r.model_dump() for r in reviews],
+            "web_evidence": [w.model_dump() for w in web],
+        })
+    return bundles

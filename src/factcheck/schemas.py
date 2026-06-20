@@ -57,3 +57,37 @@ class WebEvidence(BaseModel):
     url: str = ""
     content: str = ""          # clean snippet Tavily extracted
     score: float = 0.0         # Tavily relevance score (NOT a credibility score)
+
+
+class FactCheckScore(BaseModel):
+    """
+    Grounded Tier-2 verdict — mean of three Mistral-Large sub-scores.
+    Higher = more misleading (the Irreführungs-Index).
+
+      - factual_accuracy   open-book, FEVER SUPPORTED/REFUTED/NEI (Thorne 2018)
+      - misleading_framing closed-book, Entman (1993)
+      - missing_context    closed-book, Rogers et al. (2017) — paltering
+
+    Factual Accuracy ABSTAINS to NEI when evidence is thin; it is then excluded
+    from the mean (accuracy_counted=False) so abstention never inflates the
+    index. Framing and Missing Context are closed-book and always present.
+    """
+    score: float = Field(ge=0, le=10)
+    factual_accuracy: float = Field(ge=0, le=10)
+    factual_accuracy_label: str = "NEI"          # SUPPORTED | REFUTED | NEI
+    factual_accuracy_reasoning: str = ""
+    misleading_framing: float = Field(ge=0, le=10)
+    misleading_framing_reasoning: str = ""
+    missing_context: float = Field(ge=0, le=10)
+    missing_context_reasoning: str = ""
+    accuracy_counted: bool = True                # False when NEI → out of the mean
+    reasoning: str = ""
+
+
+class FactCheckResult(BaseModel):
+    """Aggregated fact-check result for one article (the judge-picked winner)."""
+    fact_check_score: float
+    fact_check: FactCheckScore
+    claims: list[str] = Field(default_factory=list)
+    evidence: list[dict] = Field(default_factory=list)   # per-claim evidence bundles
+    reasoning: str = ""

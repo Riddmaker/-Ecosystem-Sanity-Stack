@@ -13,7 +13,7 @@ Upsert logic:
 import hashlib
 from datetime import datetime, timezone
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from src.connectors.abstract.models import Article
@@ -168,3 +168,7 @@ class ArticleRepository:
             .order_by(desc(ArticleModel.fc_pre_score))
             .limit(limit)
         ))
+
+    def latest_fact_check_at(self) -> datetime | None:
+        """Newest fact_check_at across all articles — stateless cadence throttle."""
+        return self.session.scalar(select(func.max(ArticleModel.fact_check_at)))

@@ -148,3 +148,99 @@ def test_tavily_parses_results_and_sends_exclude_domains(monkeypatch):
 
 def _boom(*_a, **_k):  # pragma: no cover - only called if a guard fails
     raise AssertionError("network call made despite missing API key")
+
+
+# ── Evidence rendering ────────────────────────────────────────────────────────
+
+def test_render_evidence_empty():
+    from src.factcheck.scorer import render_evidence
+    assert "KEINE EXTERNEN BELEGE" in render_evidence([])
+
+
+def test_render_evidence_includes_verdict_and_web():
+    from src.factcheck.scorer import render_evidence
+    block = render_evidence([{
+        "claim": "Behauptung X",
+        "fact_checks": [{"rating": "Falsch", "publisher": "FC CH", "title": "T", "url": "u"}],
+        "web_evidence": [{"score": 0.9, "title": "W", "content": "Beleg", "url": "u2"}],
+    }])
+    assert "Behauptung X" in block
+    assert "Falsch" in block and "FC CH" in block
+    assert "Beleg" in block
+
+
+# ── FactCheckScorer (Large client mocked) ─────────────────────────────────────
+
+class _FakeLargeClient:
+    """Dispatches a canned dict per sub-score by sniffing the system prompt."""
+    accuracy = {"label": "NEI", "score": 0, "reasoning": "nei"}
+
+    def __init__(self, *_a, **_k):
+        pass
+
+    def query_json(self, system, user, retries=4):
+        if "FACTUAL ACCURACY" in system:
+            return dict(_FakeLargeClient.accuracy)
+        if "MISLEADING FRAMING" in system:
+            return {"score": 6, "reasoning": "framing"}
+        if "MISSING CONTEXT" in system:
+            return {"score": 4, "reasoning": "context"}
+        if "Chef vom Dienst" in system:
+            return {"chosen": 99, "reasoning": "judge"}
+        return {}
+
+
+def _scorer(monkeypatch):
+    monkeypatch.setattr("src.factcheck.scorer.MistralJSONClient", _FakeLargeClient)
+    from src.factcheck.scorer import FactCheckScorer
+    return FactCheckScorer(api_key="x")
+
+
+def test_score_excludes_nei_accuracy_from_mean(monkeypatch):
+    _FakeLargeClient.accuracy = {"label": "NEI", "score": 0, "reasoning": "nei"}
+    scorer = _scorer(monkeypatch)
+    res = scorer.score(title="t", content="c", claims=["x"], evidence=[])
+    # NEI → accuracy excluded; mean of framing(6) + context(4) = 5.0
+    assert res.fact_check.accuracy_counted is False
+    assert res.fact_check_score == 5.0
+
+
+def test_score_counts_refuted_accuracy_in_mean(monkeypatch):
+    _FakeLargeClient.accuracy = {"label": "REFUTED", "score": 9, "reasoning": "r"}
+    scorer = _scorer(monkeypatch)
+    res = scorer.score(title="t", content="c", claims=["x"], evidence=[])
+    # REFUTED → mean of (6 + 4 + 9) / 3 = 6.333…
+    assert res.fact_check.accuracy_counted is True
+    assert round(res.fact_check_score, 2) == 6.33
+
+
+def test_score_invalid_label_falls_back_to_nei(monkeypatch):
+    _FakeLargeClient.accuracy = {"label": "BOGUS", "score": 8, "reasoning": "?"}
+    scorer = _scorer(monkeypatch)
+    res = scorer.score(title="t", content="c", claims=["x"], evidence=[])
+    assert res.fact_check.factual_accuracy_label == "NEI"
+    assert res.fact_check.accuracy_counted is False
+
+
+def test_judge_clamps_out_of_range_choice(monkeypatch):
+    _FakeLargeClient.accuracy = {"label": "NEI", "score": 0, "reasoning": "nei"}
+    scorer = _scorer(monkeypatch)
+    verdict = scorer.judge_candidates([
+        {"title": "a", "fc_pre_score": 5}, {"title": "b", "fc_pre_score": 4},
+        {"title": "c", "fc_pre_score": 3},
+    ])
+    assert verdict["chosen"] == 3   # raw 99 clamped to N=3
+
+
+def test_fact_check_to_db_fields_shape(monkeypatch):
+    _FakeLargeClient.accuracy = {"label": "REFUTED", "score": 9, "reasoning": "r"}
+    scorer = _scorer(monkeypatch)
+    from src.factcheck.scorer import fact_check_to_db_fields
+    res = scorer.score(title="t", content="c", claims=["x"], evidence=[{"claim": "x"}])
+    fields = fact_check_to_db_fields(res, judge_reasoning="because")
+    assert set(fields) == {
+        "fact_check_score", "fact_check_details",
+        "fact_check_model", "fact_check_version", "fact_check_at",
+    }
+    assert fields["fact_check_details"]["sub_scores"]["factual_accuracy_label"] == "REFUTED"
+    assert fields["fact_check_details"]["judge_reasoning"] == "because"
