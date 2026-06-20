@@ -24,6 +24,7 @@ from src.connectors.specific_scraper.nau_scraper_connector import NauScraperConn
 from src.scoring.pre_scorer import PreScorer, pre_score_to_db_fields
 from src.scoring.schemas import ScoreResult
 from src.scoring.scorer import MediaScorer, result_to_db_fields
+from src.factcheck.pre_flag import FactCheckPreFlagger, fc_pre_flag_to_db_fields
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +115,38 @@ def _prescreen(new_or_updated_urls: list[str]) -> None:
                 log.info("%.1f  %s", result.score, (article.title or "")[:60])
             except Exception:
                 log.exception("Pre-score failed: %s", (article.title or "")[:60])
+
+
+def _fc_prescreen(new_or_updated_urls: list[str]) -> None:
+    """
+    Fact-check Tier 1: pre-flag suspicion of unverified/unchecked claims with
+    Mistral Small. Mirrors _prescreen but writes the fc_* columns and reads the
+    fact-check work queue. Only invoked when config.FACTCHECK_ENABLED is set.
+    """
+    flagger = FactCheckPreFlagger()
+    with get_session() as session:
+        repo = ArticleRepository(session)
+        for article in repo.get_fc_unflagged(urls=new_or_updated_urls):
+            if is_paywalled(article):
+                # Mark as flagged so it doesn't requeue every run
+                article.fc_pre_score = 0.0
+                article.fc_pre_reasoning = "SKIP: paywalled or teaser-only content"
+                article.fc_pre_model = "none"
+                article.fc_pre_at = datetime.now(timezone.utc)
+                session.flush()
+                log.info("[fc][paywall] %s", (article.title or "")[:60])
+                continue
+
+            try:
+                result = flagger.flag(
+                    title=article.title or "", content=article.content or ""
+                )
+                for k, v in fc_pre_flag_to_db_fields(result).items():
+                    setattr(article, k, v)
+                session.flush()
+                log.info("[fc] %.1f  %s", result.score, (article.title or "")[:60])
+            except Exception:
+                log.exception("[fc] Pre-flag failed: %s", (article.title or "")[:60])
 
 
 def _gate(scorer: MediaScorer, gate_candidates: list[ArticleModel]) -> list[ArticleModel]:
@@ -288,6 +321,14 @@ def run(
         _prescreen(new_or_updated_urls)
     else:
         log.info("Nothing to pre-score.")
+
+    # ── 3b. Fact-check pre-flag (optional second track) ──────────
+    # Reuses the same scraped/upserted articles. Off by default
+    # (config.FACTCHECK_ENABLED) so the ragebait pipeline is unchanged.
+    if config.FACTCHECK_ENABLED and new_or_updated_urls:
+        log.info("[FC] Pre-flagging %d articles for fact-check suspicion (Mistral Small)...",
+                 len(new_or_updated_urls))
+        _fc_prescreen(new_or_updated_urls)
 
     # ── 4. Gate → full-score → judge ─────────────────────────────
     log.info("[4/4] Qualitative gate + full-scoring with Mistral Large...")
