@@ -270,8 +270,10 @@ def render_reader_service(reader_service: dict) -> str:
 
 def render_empty_state() -> str:
     return (
-        f'<div style="color:{T3};text-align:center;padding:2.5rem;font-size:0.85rem;">'
-        f'Kein Ragebait-Kandidat gefunden — Pipeline ausführen oder Threshold prüfen.</div>'
+        f'<div style="color:{T3};text-align:center;padding:2.5rem;font-size:0.85rem;line-height:1.7;">'
+        f'Im letzten Durchlauf kein auffälliger Ragebait.<br>'
+        f'<span style="font-size:0.78rem;">Die analysierten Artikel berichteten überwiegend sachlich — '
+        f'schau später wieder vorbei, das Dashboard aktualisiert sich stündlich.</span></div>'
     )
 
 
