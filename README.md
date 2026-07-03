@@ -97,6 +97,7 @@ scheduler.py              ← fires pipeline at top of every hour
     ├── ArticleRepository ← upsert + SHA-256 content dedup
     ├── PreScorer         ← Mistral Small → pre_score (all new articles)
     ├── Gate              ← Mistral Large qualitative check (top candidates)
+    ├── Hard metrics      ← deterministic text metrics (src/analysis, no LLM)
     ├── MediaScorer       ← Mistral Large → 4 parallel sub-scores (passed articles)
     └── Judge             ← Mistral Large → picks dashboard highlight
              │
@@ -106,6 +107,8 @@ scheduler.py              ← fires pipeline at top of every hour
 **Deduplication:** Every article is hashed (SHA-256 of title + content). Re-scraped unchanged articles only update `scraped_at` — no re-scoring. Changed content resets all scores.
 
 **Rate limiting:** Thread-safe per-tier limiters (1 req/s for Large, 5 req/s for Small) prevent API bursts across parallel sub-score calls.
+
+**Hard metrics (MESSWERTE):** Before every Tier-2 call, `src/analysis/hard_metrics.py` computes deterministic, paper-grounded text signals — forward-reference headline patterns (Blom & Hansen), engagement-farming markers (Rony et al.), emotive/moral word densities (Potthast, Brady et al.), naked numbers without comparison anchors and counter-position markers (Rogers et al., Entman), plus evidence-coverage stats (FEVER) on the fact-check track. They are injected into the prompts as a `MESSWERTE` block (the LLM must ground its marker decisions in them) and persisted under `score_details.hard_metrics` / `fact_check_details.hard_metrics` for audit. Pure Python — no extra API calls; the word lists live in `src/strings.py` and switch language with everything else.
 
 **Paywall filter:** Articles with `(B+)` in the title or fewer than 100 words are marked `pre_score=0` and skipped — scoring truncated marketing copy inflates every dimension artificially.
 
@@ -481,6 +484,8 @@ ecosystem-sanity-stack/
 │   │   ├── models.py            # SQLAlchemy ORM (ArticleModel)
 │   │   ├── repository.py        # upsert, dedup, query helpers
 │   │   └── connection.py        # engine + session factory
+│   ├── analysis/
+│   │   └── hard_metrics.py      # deterministic text metrics (MESSWERTE block, no LLM)
 │   ├── scoring/
 │   │   ├── llm_client.py        # shared Mistral JSON client (retry, rate limits)
 │   │   ├── pre_scorer.py        # Tier-1: Mistral Small
@@ -539,10 +544,13 @@ Each article stores `score_version` and `score_model` so you can re-score when p
 
 | Version | Change |
 |---|---|
-| `v9` | Current — narrative_exploitation added as 4th sub-score, 4 parallel Large calls |
+| `v10` | Current — deterministic MESSWERTE (hard metrics) fed to all four sub-scores |
+| `v9` | narrative_exploitation added as 4th sub-score, 4 parallel Large calls |
 | `v6-pre` | Current pre-screen — Mistral Small, 250-word snippet |
 | `v7` | Added narrative_exploitation, per-sub-score reasoning fields |
 | `v4` | Original — Ragebait Index + Emotional Weight (2-axis) |
+
+Fact-check track: `fc-v2` (current) — anchored J/N marker rubrics + MESSWERTE for the closed-book sub-scores (framing/context); `fc-v1` — initial open-book track.
 
 ---
 

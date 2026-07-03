@@ -52,3 +52,6 @@ class ScoreResult(BaseModel):
     ragebait_score: float
     ragebait: RagebaitScore
     reasoning: str
+    # Deterministic text metrics (src/analysis/hard_metrics.py) that were fed
+    # to the sub-score prompts as the MESSWERTE block — persisted for audit.
+    hard_metrics: dict = Field(default_factory=dict)

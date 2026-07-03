@@ -91,3 +91,6 @@ class FactCheckResult(BaseModel):
     claims: list[str] = Field(default_factory=list)
     evidence: list[dict] = Field(default_factory=list)   # per-claim evidence bundles
     reasoning: str = ""
+    # Deterministic metrics (src/analysis/hard_metrics.py) fed to the prompts
+    # as the MESSWERTE block — {"text": ..., "evidence": ...}, persisted for audit.
+    hard_metrics: dict = Field(default_factory=dict)

@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
+from src.analysis.hard_metrics import ragebait_metrics, render_metrics_block
 from src.scoring.llm_client import MistralJSONClient, RANDOM_SEED, TEMPERATURE
 from src.scoring.schemas import RagebaitScore, ScoreResult
 from src.scoring.throttle import large_limiter
@@ -32,7 +33,7 @@ from src.strings import (
 )
 
 SCORE_MODEL_ID    = "mistral-large-latest"
-SCORE_VERSION     = "v9"
+SCORE_VERSION     = "v10"   # v10: deterministic MESSWERTE block fed to the sub-scores
 MAX_CONTENT_CHARS = 3000
 
 _SUB_TASKS = [
@@ -60,10 +61,16 @@ class MediaScorer:
     def score(self, title: str, content: str) -> ScoreResult:
         """Fire 4 parallel sub-score calls and return an aggregated ScoreResult."""
         content_trunc = content[:MAX_CONTENT_CHARS]
+        # Deterministic signals over the exact text the model sees — injected
+        # into every sub-score prompt and persisted alongside the verdict.
+        hard_metrics = ragebait_metrics(title, content_trunc)
+        metrics_block = render_metrics_block(hard_metrics)
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             future_map = {
-                executor.submit(self._score_sub, system, title, content_trunc): key
+                executor.submit(
+                    self._score_sub, system, title, content_trunc, metrics_block
+                ): key
                 for key, system in _SUB_TASKS
             }
             sub_scores: dict[str, dict] = {}
@@ -103,6 +110,7 @@ class MediaScorer:
             ragebait_score=composite,
             ragebait=ragebait,
             reasoning=reasoning,
+            hard_metrics=hard_metrics,
         )
 
     def gate_article(self, title: str, content: str) -> dict:
@@ -182,9 +190,9 @@ class MediaScorer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _score_sub(self, system: str, title: str, content: str) -> dict:
+    def _score_sub(self, system: str, title: str, content: str, metrics_block: str) -> dict:
         """Score a single sub-dimension. Returns {"score": float, "reasoning": str}."""
-        user_msg = SUB_SCORE_USER.format(title=title, content=content)
+        user_msg = SUB_SCORE_USER.format(title=title, content=content, metrics=metrics_block)
         raw = self._query(system, user_msg)
         score = float(raw.get("score", 0))
         score = max(0.0, min(10.0, score))
@@ -213,6 +221,7 @@ def result_to_db_fields(result: ScoreResult) -> dict:
                 "narrative_exploitation_reasoning": rb.narrative_exploitation_reasoning,
                 "reasoning":                      rb.reasoning,
             },
+            "hard_metrics": result.hard_metrics,
             "temperature": TEMPERATURE,
             "random_seed": RANDOM_SEED,
         },
