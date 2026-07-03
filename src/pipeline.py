@@ -319,6 +319,10 @@ def _pick_winner(
     Judge: qualitative winner selection across the scored candidates.
     Persists the judge verdict and a reader-service extract on the winner.
     Falls back to the highest ragebait_score if the judge call fails.
+
+    Also runs for a SINGLE candidate: the judge call still produces the
+    card's reasoning, and only judge-marked articles are eligible for the
+    dashboard highlight (data.pick_highlight).
     """
     judge_input = [
         {
@@ -334,7 +338,8 @@ def _pick_winner(
     ]
     try:
         judge_result = scorer.judge_articles(judge_input)
-        idx = judge_result["chosen"] - 1  # 0-indexed
+        # 0-indexed, clamped — an out-of-range pick must not discard the verdict
+        idx = max(0, min(int(judge_result["chosen"]) - 1, len(scored) - 1))
         winner_article, winner_result = scored[idx]
         judge_reasoning = judge_result["reasoning"]
         log.info('Judge chose Artikel %d: "%s"', judge_result["chosen"],
@@ -476,15 +481,10 @@ def run(
                 log.info("%d article(s) passed the gate.", len(candidates))
                 scored = _full_score(scorer, session, candidates)
 
-            if len(scored) > 1:
-                log.info("Asking judge to pick winner from %d candidates...", len(scored))
+            if scored:
+                log.info("Asking judge to pick winner from %d candidate(s)...", len(scored))
                 winner_article, winner_result = _pick_winner(scorer, session, scored)
                 log.info('Dashboard highlight: "%s"', (winner_article.title or "")[:70])
-                log.info("ragebait=%.1f", winner_result.ragebait_score)
-            elif scored:
-                winner_article, winner_result = scored[0]
-                log.info('Dashboard highlight (single candidate): "%s"',
-                         (winner_article.title or "")[:70])
                 log.info("ragebait=%.1f", winner_result.ragebait_score)
 
     # ── 5. Fact-check verdict (optional, winner-only, throttled) ──

@@ -125,27 +125,16 @@ def load_factcheck_batch_stats() -> dict:
 
 def pick_highlight(articles: list[dict]) -> dict | None:
     """
-    Pick the most notable article to highlight.
-    Relies exclusively on the judge LLM call:
-    1. Judge-selected article in the latest batch (10-min window).
-    2. Fallback: most recent judge-selected article in the last 24h.
+    Pick the most notable article to highlight: the most recent judge-selected
+    article, regardless of age — the card carries its own date. Mirrors the
+    Faktencheck tab, which also shows its latest verdict instead of an empty
+    state. The empty state only appears while no judge pick exists at all.
     """
-    scored = [a for a in articles if a["score_computed_at"] is not None]
-    if not scored:
+    judged = [
+        a for a in articles
+        if a["score_computed_at"] is not None
+        and a.get("judge_selected") and a.get("judge_reasoning")
+    ]
+    if not judged:
         return None
-
-    latest_ts = max(a["score_computed_at"] for a in scored)
-    batch    = [a for a in scored if a["score_computed_at"] >= latest_ts - timedelta(minutes=10)]
-    last_24h = [a for a in scored if a["score_computed_at"] >= latest_ts - timedelta(hours=24)]
-
-    # 1. Judge pick in latest batch
-    judge_batch = [a for a in batch if a.get("judge_selected") and a.get("judge_reasoning")]
-    if judge_batch:
-        return judge_batch[0]
-
-    # 2. Judge pick from last 24h
-    judge_24h = [a for a in last_24h if a.get("judge_selected") and a.get("judge_reasoning")]
-    if judge_24h:
-        return max(judge_24h, key=lambda a: a["score_computed_at"])
-
-    return None
+    return max(judged, key=lambda a: a["score_computed_at"])

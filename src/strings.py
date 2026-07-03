@@ -712,8 +712,8 @@ UI_WORD_SUFFIX          = "w"          # rendered as "{word_count}w"
 
 # ── Section labels (templated: {total}, {time}) ──────────────────────────────
 UI_RB_SECTION_LABEL = (
-    "Höchster Ragebait-Score im letzten Batch &nbsp;·&nbsp; "
-    "{total} Artikel gescreent ({time})"
+    "Höchster Ragebait-Score &nbsp;·&nbsp; "
+    "zuletzt {total} Artikel gescreent ({time})"
     "&nbsp;·&nbsp; Aktualisierung stündlich"
 )
 UI_RB_SECTION_LABEL_EMPTY = "Höchster Ragebait-Score"
@@ -751,7 +751,7 @@ UI_FC_EVIDENCE_NOTE = (
 
 # ── Empty states (inner HTML; the card wrapper/colour stays in components) ────
 UI_RB_EMPTY_STATE = (
-    "Im letzten Durchlauf kein auffälliger Ragebait.<br>"
+    "Noch kein auffälliger Ragebait ermittelt.<br>"
     '<span style="font-size:0.78rem;">Die analysierten Artikel berichteten überwiegend sachlich — '
     "schau später wieder vorbei, das Dashboard aktualisiert sich stündlich.</span>"
 )
@@ -1693,8 +1693,8 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # UI_WORD_SUFFIX          = "w"
 #
 # UI_RB_SECTION_LABEL = (
-#     "Highest ragebait score in the latest batch &nbsp;·&nbsp; "
-#     "{total} articles screened ({time})"
+#     "Highest ragebait score &nbsp;·&nbsp; "
+#     "latest: {total} articles screened ({time})"
 #     "&nbsp;·&nbsp; updated hourly"
 # )
 # UI_RB_SECTION_LABEL_EMPTY = "Highest ragebait score"
@@ -1728,7 +1728,7 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # )
 #
 # UI_RB_EMPTY_STATE = (
-#     "No notable ragebait in the latest run.<br>"
+#     "No notable ragebait identified yet.<br>"
 #     '<span style="font-size:0.78rem;">The analysed articles mostly reported factually — '
 #     "check back later, the dashboard updates hourly.</span>"
 # )
