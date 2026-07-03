@@ -23,9 +23,10 @@ Most editors toggle a block comment on a selection in one shortcut
 they define the same names, so leaving both uncommented makes the lower one win.
 
 Sections (mirrored in both languages, same order):
-  1. RAGEBAIT PROMPTS   — pre-screen, four sub-scores, judge, gate, reader service
-  2. FACT-CHECK PROMPTS — pre-flag, claim extraction, three sub-scores, judge, reader
-  3. FRONTEND TEXT      — labels, cards, empty states, explainers, research footers
+  1.  RAGEBAIT PROMPTS   — pre-screen, four sub-scores, judge, gate, reader service
+  2.  FACT-CHECK PROMPTS — pre-flag, claim extraction, three sub-scores, judge, reader
+  2b. HARD-METRIC LEXICONS — word lists + labels for src/analysis/hard_metrics.py
+  3.  FRONTEND TEXT      — labels, cards, empty states, explainers, research footers
 """
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -115,12 +116,16 @@ GLOBALE AXIOME FÜR DEINE ANALYSE:
 1. REDLICHKEITSVERMUTUNG: Gehe von journalistischer Redlichkeit aus, bis der Text das Gegenteil beweist. Deine Aufgabe ist nicht, Ragebait zu suchen, sondern zu messen, ob er zweifelsfrei vorliegt. Hohe Scores (7+) erfordern klare, belegbare Textstellen.
 2. ZITAT VS. REDAKTION: Du musst zwingend zwischen redaktionellem Fliesstext und direkten/indirekten Zitaten («X sagt...») unterscheiden. Wenn eine zitierte Person provoziert, lügt oder extrem emotional spricht, dokumentiert die Redaktion dies nur. Bestrafe Artikel NICHT für Aussagen in Zitaten. Bewerte ausschliesslich die redaktionelle Rahmung.
 3. IRONIE / SARKASMUS / SATIRE: Erkenne aktiv, ob ein Text ironisch, sarkastisch oder satirisch geschrieben ist. Kennzeichen: übertriebene Formulierungen, die sich selbst demontieren; demonstrativ naive Fragen als Stilmittel; Überspitzung, die den Leser auf eine Metaebene einlädt statt Empörung zu befehlen. Wenn ein Text erkennbar mit Ironie oder Satire arbeitet, ist die emotionale Aufladung bewusst-künstlerisch, nicht manipulativ — discount den Score entsprechend. Ein offensichtlich satirischer Text kann nicht gleichzeitig unehrlich manipulieren.
+4. MESSWERTE: Der Input kann einen Block «MESSWERTE» mit deterministisch aus dem Text berechneten Kennzahlen enthalten (Wortlisten-Treffer, Dichten, Überlappungen). Nutze sie als objektive Zusatzevidenz für deine Signal-Entscheidungen und benenne die relevanten Werte im Reasoning — sie ergänzen deine Textanalyse, ersetzen sie nicht.
 
 Bewerte ausschliesslich auf Basis des gegebenen Textes. Gib deine Antwort AUSSCHLIESSLICH als valides JSON zurück — kein erklärender Text darum herum."""
 
 SUB_SCORE_USER = """TITEL: {title}
 
-TEXT: {content}"""
+TEXT: {content}
+
+MESSWERTE (deterministisch aus dem Text berechnet):
+{metrics}"""
 
 
 # 1. Curiosity Gap   (Blom & Hansen 2015)
@@ -523,6 +528,10 @@ Fehler der Redaktion — entscheidend ist, ob die Redaktion sie ungeprüft als T
 zeigen. Hohe Scores erfordern konkrete, benennbare Belege.
 5. QUELLENKRITIK: Wäge die Verlässlichkeit der Belege ab. Eine schwache, parteiische oder \
 themenfremde Quelle ist kein starker Beleg — im Zweifel Richtung NEI.
+6. MESSWERTE: Der Input kann einen Block «MESSWERTE» mit deterministisch aus dem Text \
+berechneten Kennzahlen enthalten (Wortlisten-Treffer, Dichten, Belegabdeckung). Nutze sie als \
+objektive Zusatzevidenz für deine Marker-Entscheidungen und benenne die relevanten Werte im \
+Reasoning — sie ergänzen deine Analyse, ersetzen sie nicht.
 
 Antworte AUSSCHLIESSLICH als valides JSON, ohne erklärenden Text darum herum.
 
@@ -537,12 +546,18 @@ ARTIKEL:
 {content}
 
 EXTERNE BELEGE (aus Faktencheck-Datenbanken und Websuche):
-{evidence}"""
+{evidence}
+
+MESSWERTE (deterministisch berechnet):
+{metrics}"""
 
 FC_CLOSED_USER = """TITEL: {title}
 
 ARTIKEL:
-{content}"""
+{content}
+
+MESSWERTE (deterministisch aus dem Text berechnet):
+{metrics}"""
 
 
 # 1. Factual Accuracy — open-book, FEVER (Thorne et al. 2018)
@@ -574,22 +589,61 @@ OUTPUT FORMAT:
 MISLEADING_FRAMING_SYSTEM = FC_SYSTEM_PREAMBLE + """
 
 AUFGABE — MISLEADING FRAMING (0–10):
-Basis: Entman (1993) — Framing durch Auswahl und Betonung.
+Basis: Entman (1993) — Framing durch Auswahl und Salienz: Problemdefinition, \
+Ursachenzuschreibung, moralische Bewertung, Handlungsempfehlung.
 KERNFRAGE: Drängt die redaktionelle Rahmung (Schlagzeile, Auswahl, Betonung, Wortwahl, \
 Reihenfolge) eine Deutung auf, die ÜBER das hinausgeht, was die berichteten Fakten hergeben?
 
-VORGEHEN (im Reasoning dokumentieren):
-1. Was sind die nackten Fakten des Artikels?
-2. Welche Deutung legt die Rahmung nahe (Schlagzeile, was betont/weggelassen, welche Wortwahl)?
-3. Klafft eine Lücke zwischen Fakten und nahegelegter Deutung?
-   Keine Lücke (Rahmung deckt sich mit Fakten)        → 0–2
-   Leichte Zuspitzung, Kern bleibt korrekt            → 3–5
-   Deutliche Verzerrung der Deutung                   → 6–8
-   Rahmung trägt eine durch Fakten nicht gedeckte These → 9–10
-ZITATE: Bewerte die redaktionelle Rahmung, nicht zitierte Aussagen Dritter.
+ANALYSE-SCHRITT — Checkliste (jeden Marker mit J/N bewerten, im Reasoning dokumentieren):
+0. NEUTRALER BASELINE: Wie würde eine SDA-Meldung dieselben Fakten titeln und aufbauen? \
+Weicht die vorliegende Rahmung nur stilistisch ab — oder in der Deutung?
+A) THESEN-ÜBERSCHUSS: Behauptet oder suggeriert Schlagzeile/Lead eine These, die der \
+Faktenteil des Artikels nicht belegt?
+B) WERTENDE WORTWAHL: Setzt die Redaktion (ausserhalb von Zitaten) wertende oder \
+moralisierende Begriffe ohne Faktenanker ein («Skandal», «Debakel», «dreist», «fragwürdig»)?
+C) EINSEITIGE SALIENZ: Werden deutungsrelevante Fakten, die der nahegelegten Lesart \
+widersprechen, weggelassen, verkürzt oder ans Artikelende verschoben, während stützende \
+Fakten prominent stehen?
+D) UNGEDECKTE ZUSCHREIBUNG: Weist die Rahmung Schuld, Ursache oder Absicht zu («wegen», \
+«versagt», «wollte verhindern»), ohne dass der Text Kausalität oder Absicht belegt?
 
-OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<Fakten vs. nahegelegte Deutung, konkrete Textbelege in «»> → <2–3 Sätze: worin die Verzerrung liegt und welche Deutung sie nahelegt>"}"""
+SCORE-LOGIK:
+  0 Marker aktiv   → 0–2  (Rahmung deckt sich mit der Faktenlage)
+  1 Marker         → 3–4
+  2 Marker         → 5–6
+  3 Marker         → 7–8
+  4 Marker         → 9–10
+  Klar gekennzeichnete Meinung/Kolumne mit faktischer Basis → max. 4 \
+(deklarierte Haltung ist keine verdeckte Irreführung)
+  Rahmung stammt aus korrekt attribuierten Zitaten → betroffener Marker N \
+(die Redaktion dokumentiert nur)
+
+WICHTIG: Nutze die ganze Skala. Ein Artikel, dessen Rahmung die Fakten schlicht wiedergibt, \
+gehört auf 0–2 — nicht ins Mittelfeld. Jeder Marker J erfordert ein konkretes Textzitat \
+in «»; findest du keines, ist der Marker N.
+
+BEISPIELE:
+
+[Score ~1 — Rahmung deckt sich mit den Fakten]
+Titel: «Nationalrat lehnt Initiative mit 120 zu 68 Stimmen ab»
+Text: «Der Nationalrat hat die Initiative am Dienstag mit 120 zu 68 Stimmen abgelehnt. \
+Die Befürworter kündigten an, das Referendum zu prüfen.»
+→ {"score": 1.0, "reasoning": "Baseline: SDA würde nahezu identisch titeln. A=N (Titel = Faktum), B=N (keine Wertungen), C=N (beide Lager kommen vor), D=N. 0 Marker. → Die Rahmung gibt das Abstimmungsergebnis nüchtern wieder; Auswahl und Betonung folgen der Faktenlage, beide Seiten sind vertreten."}
+
+[Score ~5 — Zugespitzte Deutung, Kern bleibt korrekt]
+Titel: «Behörde schaute jahrelang zu: Belastetes Trinkwasser in zwei Gemeinden»
+Text: «Messwerte lagen seit 2019 über dem Grenzwert. Die Behörde verweist auf laufende \
+Abklärungen und neue Filter ab 2025.»
+→ {"score": 5.0, "reasoning": "Baseline: SDA-Titel wäre «Grenzwertüberschreitungen im Trinkwasser seit 2019». A=J («schaute jahrelang zu» unterstellt Untätigkeit, der Text nennt laufende Abklärungen), B=N, C=N (Gegenposition der Behörde enthalten), D=J («schaute zu» = Schuldzuschreibung, Untätigkeit nicht belegt). 2 Marker. → Die Schlagzeile deutet dokumentierte Grenzwertüberschreitungen in behördliche Untätigkeit um, die der Text so nicht belegt. Der faktische Kern stimmt, und die Gegenposition ist enthalten — die Verzerrung liegt allein in der zugespitzten Schuld-Rahmung."}
+
+[Score ~9 — Rahmung trägt eine ungedeckte These]
+Titel: «Geheimplan gegen das Gewerbe? Stadt will Parkplätze streichen»
+Text: «Die Stadt plant, 40 der 2200 Parkplätze in der Innenstadt aufzuheben. Ein Gewerbler \
+befürchtet Umsatzeinbussen.»
+→ {"score": 9.0, "reasoning": "Baseline: SDA-Titel wäre «Stadt hebt 40 Parkplätze auf». A=J («Geheimplan gegen das Gewerbe?» — der Text belegt weder Geheimhaltung noch eine Absicht gegen das Gewerbe), B=J («Geheimplan» moralisierend ohne Faktenanker), C=J (40 von 2200 = unter 2 Prozent wird nirgends eingeordnet), D=J (unterstellte Absicht «gegen das Gewerbe» unbelegt). 4 Marker. → Die Rahmung macht aus einer marginalen Verkehrsmassnahme einen gezielten Angriff aufs Gewerbe. Verschwörungsvokabular und fehlende Einordnung tragen eine These, die die berichteten Fakten nicht hergeben."}
+
+OUTPUT FORMAT — Reasoning enthält Baseline + Marker-Trace + Kurzfassung:
+{"score": <float 0-10>, "reasoning": "<Baseline: [SDA-Rahmung wäre ...]. A=J/N, B=J/N, C=J/N, D=J/N — jedes J mit «Textzitat». N Marker. → 2–3 Sätze: worin die Verzerrung liegt und welche Deutung sie nahelegt>"}"""
 
 
 # 3. Missing Context — closed-book, Rogers et al. (2017), paltering
@@ -600,19 +654,57 @@ Basis: Rogers et al. (2017) — «Artful Paltering»: mit wahren Aussagen einen 
 KERNFRAGE: Fehlt dem Artikel Kontext, den eine Leserin BRAUCHT, sodass technisch korrekte \
 Aussagen einen irreführenden Gesamteindruck hinterlassen?
 
-VORGEHEN (im Reasoning dokumentieren):
-1. Welcher Eindruck bleibt nach dem Lesen hängen?
-2. Welcher bekannte, relevante Kontext (Vergleichszahlen, Vorgeschichte, Gegenposition, \
-Einordnung) fehlt, der diesen Eindruck verändern würde?
-3. Score:
-   Vollständig eingeordnet                              → 0–2
-   Kleinere Auslassung, Eindruck kaum verzerrt          → 3–5
-   Wichtiger Kontext fehlt, Eindruck deutlich verzerrt  → 6–8
-   Zentrale Einordnung fehlt, Aussage wird dadurch irreführend → 9–10
-Verlange keinen Kontext, der unbekannt oder unzumutbar ist. Bewerte Auslassung, nicht Kürze allein.
+ANALYSE-SCHRITT — Checkliste (jeden Marker mit J/N bewerten, im Reasoning dokumentieren):
+0. NEUTRALER BASELINE: Notiere 2–3 Einordnungspunkte, die eine Leserin mindestens braucht, \
+um die Kernaussage zu gewichten (Vergleichsgrösse, Vorgeschichte, Gegenseite). Prüfe dann, \
+welche davon der Text tatsächlich liefert.
+A) ZAHL OHNE BASIS: Steht eine zentrale Zahl/Prozentangabe ohne Vergleichsgrösse, Basisrate \
+oder Zeitreihe da, sodass ihre Grössenordnung nicht einschätzbar ist?
+B) FEHLENDE GEGENSEITE: Fehlt die Stellungnahme der kritisierten/betroffenen Seite, obwohl \
+sie naheliegend einholbar wäre — oder erscheint sie nur pro forma im letzten Absatz?
+C) FEHLENDE VORGESCHICHTE: Fehlt eine bekannte Vorgeschichte oder Einordnung, ohne die das \
+Ereignis anders (grösser, kleiner, neuartiger) wirkt, als es ist?
+D) WAHR-ABER-IRREFÜHREND: Bleibt ein Gesamteindruck hängen, den der benennbare fehlende \
+Kontext klar korrigieren würde? (Kern des Paltering)
 
-OUTPUT FORMAT:
-{"score": <float 0-10>, "reasoning": "<welcher Kontext fehlt> → <2–3 Sätze: der fehlende Kontext und seine Wirkung auf den Eindruck>"}"""
+STRIKTE BELEGPFLICHT: Ein Marker ist nur J, wenn du den fehlenden Kontext KONKRET benennen \
+kannst (welche Vergleichszahl, welche Vorgeschichte, wessen Stellungnahme). \
+«Mehr Einordnung wäre wünschenswert» ohne benennbaren Inhalt = N.
+
+SCORE-LOGIK:
+  0 Marker aktiv   → 0–2  (vollständig eingeordnet)
+  1 Marker         → 3–4
+  2 Marker         → 5–6
+  3 Marker         → 7–8
+  4 Marker         → 9–10
+  Agentur-Kurzmeldung ohne zuspitzende Deutung → max. 3 (Kürze allein ist keine Auslassung)
+  Kontext, der zum Publikationszeitpunkt unbekannt oder unzumutbar war → Marker N
+
+WICHTIG: Nutze die ganze Skala. Ein Artikel, der seine Kernaussage sauber einordnet, gehört \
+auf 0–2 — nicht ins Mittelfeld.
+
+BEISPIELE:
+
+[Score ~1 — Vollständig eingeordnet]
+Titel: «Arbeitslosenquote steigt im Juni auf 2.4 Prozent»
+Text: «Die Quote stieg von 2.3 auf 2.4 Prozent, wie das SECO mitteilt. Saisonbereinigt \
+bleibt sie stabil. Im Vorjahresmonat lag sie bei 2.0 Prozent.»
+→ {"score": 1.0, "reasoning": "Baseline nötig: Vormonat, Vorjahr, Saisoneffekt — alle drei geliefert. A=N (Vergleichswerte vorhanden), B=N (keine kritisierte Seite), C=N, D=N. 0 Marker. → Die Zahl ist vollständig eingeordnet: Vormonat, Vorjahr und Saisonbereinigung stehen im Text. Es bleibt kein schiefer Gesamteindruck zurück."}
+
+[Score ~5 — Benennbare Lücken, Kernaussage trägt trotzdem]
+Titel: «Rekord: 12'000 Asylgesuche im ersten Halbjahr»
+Text: «Das SEM meldet 12'000 Gesuche für das erste Halbjahr. Man beobachte die Lage, sagt \
+ein Sprecher am Ende des Artikels. Vorjahreswerte nennt der Text nicht.»
+→ {"score": 5.0, "reasoning": "Baseline nötig: Zeitreihe (Rekord seit wann?), Vorjahresvergleich, europäische Einordnung. A=J («Rekord» und «12'000» ohne jede Zeitreihe — Rekord ist nicht überprüfbar), B=N (SEM kommt zu Wort, wenn auch spät), C=J (frühere Höchststände und Vorjahreswert fehlen), D=N (die Grundaussage bliebe auch mit Kontext bestehen). 2 Marker. → Für die Einordnung des «Rekords» fehlen Zeitreihe und Vorjahreswert — die Grössenordnung bleibt für die Leserin unbewertbar. Der Gesamteindruck wird dadurch verstärkt, aber nicht grundlegend verfälscht."}
+
+[Score ~9 — Wahre Zahlen, irreführender Gesamteindruck]
+Titel: «Kriminalität explodiert: 40 Prozent mehr Delikte an der Bahnhofstrasse»
+Text: «Die Delikte stiegen innert Jahresfrist von 10 auf 14 pro Monat. Anwohner zeigen \
+sich besorgt.»
+→ {"score": 9.0, "reasoning": "Baseline nötig: absolute Basis, längerfristige Zeitreihe, Einordnung durch Polizei/Stadt. A=J («40 Prozent mehr» als Aufmacher — die absolute Basis von 4 zusätzlichen Delikten pro Monat wird nicht eingeordnet), B=J (keine Stellungnahme von Polizei oder Stadt), C=J (Einzeljahresvergleich ohne längere Reihe — Ausreisser nicht ausschliessbar), D=J (Eindruck «explodierende Kriminalität», den die Mini-Basis klar korrigieren würde). 4 Marker. → Wahre Zahlen erzeugen einen falschen Gesamteindruck: «explodiert» steht für 4 zusätzliche Delikte pro Monat auf minimaler Basis. Ohne absolute Einordnung, längere Zeitreihe und Behördensicht bleibt ein massiv überzeichnetes Bedrohungsbild hängen."}
+
+OUTPUT FORMAT — Reasoning enthält Baseline + Marker-Trace + Kurzfassung:
+{"score": <float 0-10>, "reasoning": "<Baseline: [nötige Einordnungspunkte ...]. A=J/N, B=J/N, C=J/N, D=J/N — jedes J mit konkret benanntem fehlendem Kontext. N Marker. → 2–3 Sätze: der fehlende Kontext und seine Wirkung auf den Eindruck>"}"""
 
 
 # Judge — pick the single most illustrative candidate to fact-check (1 call)
@@ -674,6 +766,99 @@ GEFUNDENE BELEGE:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# 2b. HARD-METRIC LEXICONS  (deterministic text metrics — src/analysis)
+# ════════════════════════════════════════════════════════════════════════════
+# Matched case-insensitively on word boundaries by src/analysis/hard_metrics.py
+# and rendered into the MESSWERTE prompt block. German, because the analysed
+# articles are German — the English mirror carries English equivalents for
+# forks that score English-language sources.
+
+# Editorial emotive/evaluative vocabulary (Potthast et al. 2016)
+HM_EMOTIVE_WORDS = [
+    "skandal", "skandalös", "schock", "schockierend", "schockiert", "dramatisch",
+    "drama", "empörung", "empörend", "empört", "wut", "wütend", "eklat",
+    "debakel", "desaster", "fiasko", "katastrophal", "unfassbar", "unglaublich",
+    "dreist", "brisant", "alarmierend", "erschütternd", "entsetzen", "entsetzt",
+    "chaos", "horror", "albtraum", "eskaliert", "eskalation", "wirbel", "zoff",
+    "hammer", "irre", "absurd", "pikant", "heftig", "explodiert", "explodieren",
+]
+
+# Moral-emotional vocabulary, harm + fairness clusters (Brady et al. 2017)
+HM_MORAL_WORDS = [
+    "opfer", "leidet", "leiden", "verletzt", "misshandelt", "schutzlos",
+    "wehrlos", "unschuldig", "grausam", "gequält", "missbrauch", "ungerecht",
+    "unfair", "versagen", "versagt", "schuld", "schuldig", "verantwortungslos",
+    "betrogen", "belogen", "skrupellos", "rücksichtslos", "straflos",
+]
+
+# Forward-reference headline patterns (Blom & Hansen 2015) — regex, title only
+HM_FORWARD_REFERENCE_PATTERNS = [
+    r"^(diese|dieser|dieses|diesen|diesem)\b",
+    r"^darum\b", r"^deshalb\b", r"^so\b",
+    r"\bdas steckt\b", r"\bsteckt dahinter\b", r"\bdas bedeutet\b",
+    r"\bwas dahinter\b", r"\bwas dann geschah\b", r"\baus diesem grund\b",
+    r"\bdu wirst nicht glauben\b", r"…\s*$",
+]
+
+# Engagement-farming / conflict-staging markers (Rony et al. 2017)
+HM_ENGAGEMENT_PATTERNS = [
+    "was meint ihr", "was denkt ihr", "was meinst du", "was sagst du",
+    "seid ihr", "stimme ab", "stimmen sie ab", "gespalten", "spaltet",
+    "sorgt für diskussionen", "gehen die meinungen auseinander",
+]
+
+# Source-attribution markers — who gets to speak? (Rogers et al. 2017)
+HM_ATTRIBUTION_PATTERNS = [
+    "laut", "gemäss", "zufolge", "sagte", "sagt", "erklärte", "erklärt",
+    "teilte mit", "teilt mit", "bestätigte", "bestätigt", "berichtet",
+    "schreibt", "heisst es", "so der", "so die",
+]
+
+# Comparison anchors that contextualise numbers (Rogers et al. 2017)
+HM_COMPARISON_ANCHORS = [
+    "vorjahr", "vormonat", "im vergleich", "verglichen mit", "zuvor", "davor",
+    "im schnitt", "durchschnitt", "durchschnittlich", "pro kopf",
+    "pro einwohner", "insgesamt", "von total", "saisonbereinigt", "langjährig",
+]
+
+# Counter-position markers — the other side gets a voice (Entman 1993)
+HM_COUNTERPOSITION_MARKERS = [
+    "hingegen", "dagegen", "widerspricht", "widersprach", "bestreitet",
+    "bestritt", "kritisiert", "relativiert", "andererseits", "wehrt sich",
+    "entgegnet", "verteidigt", "dementiert", "weist zurück", "wies zurück",
+    "stellungnahme",
+]
+
+# MESSWERTE block rendering — dict order here = display order in the prompt
+HM_YES = "ja"
+HM_NO = "nein"
+HM_LABELS = {
+    "title_is_question":            "Titel ist Frage",
+    "title_exclamations":           "Ausrufezeichen im Titel",
+    "title_forward_reference_hits": "Forward-Reference-Muster im Titel",
+    "headline_body_overlap_pct":    "Titel/Textanfang-Überlappung (%)",
+    "engagement_marker_hits":       "Engagement-Marker",
+    "editorial_emotive_hits":       "Redaktionelle Emotionswörter",
+    "emotive_per_1000_words":       "Emotionswörter pro 1000 Wörter",
+    "moral_word_hits":              "Moral-Vokabular",
+    "moral_per_1000_words":         "Moral-Vokabular pro 1000 Wörter",
+    "number_tokens":                "Zahlen im Text",
+    "percent_tokens":               "Prozentangaben",
+    "comparison_anchor_hits":       "Vergleichsanker",
+    "attribution_hits":             "Quellen-Attributionsmarker",
+    "counterposition_hits":         "Gegenposition-Marker",
+    "quote_share_pct":              "Zitatanteil (%)",
+    "word_count":                   "Wortzahl",
+    "claims_total":                 "Geprüfte Behauptungen",
+    "claims_with_factcheck_hits":   "Behauptungen mit Faktencheck-Treffer",
+    "claims_with_web_evidence":     "Behauptungen mit Websuche-Belegen",
+    "claims_without_evidence":      "Behauptungen ohne Belege",
+    "evidence_sources_total":       "Belegquellen total",
+    "mean_web_relevance":           "Mittlere Web-Relevanz",
+}
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # 3. FRONTEND TEXT
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -712,8 +897,8 @@ UI_WORD_SUFFIX          = "w"          # rendered as "{word_count}w"
 
 # ── Section labels (templated: {total}, {time}) ──────────────────────────────
 UI_RB_SECTION_LABEL = (
-    "Höchster Ragebait-Score im letzten Batch &nbsp;·&nbsp; "
-    "{total} Artikel gescreent ({time})"
+    "Höchster Ragebait-Score &nbsp;·&nbsp; "
+    "zuletzt {total} Artikel gescreent ({time})"
     "&nbsp;·&nbsp; Aktualisierung stündlich"
 )
 UI_RB_SECTION_LABEL_EMPTY = "Höchster Ragebait-Score"
@@ -751,7 +936,7 @@ UI_FC_EVIDENCE_NOTE = (
 
 # ── Empty states (inner HTML; the card wrapper/colour stays in components) ────
 UI_RB_EMPTY_STATE = (
-    "Im letzten Durchlauf kein auffälliger Ragebait.<br>"
+    "Noch kein auffälliger Ragebait ermittelt.<br>"
     '<span style="font-size:0.78rem;">Die analysierten Artikel berichteten überwiegend sachlich — '
     "schau später wieder vorbei, das Dashboard aktualisiert sich stündlich.</span>"
 )
@@ -1119,12 +1304,16 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # 1. PRESUMPTION OF GOOD FAITH: Assume journalistic integrity until the text proves otherwise. Your job is not to hunt for ragebait, but to measure whether it is unambiguously present. High scores (7+) require clear, citable passages.
 # 2. QUOTE VS. EDITORIAL: You must distinguish editorial prose from direct/indirect quotes ("X says..."). When a quoted person provokes, lies or speaks with extreme emotion, the newsroom is merely documenting it. Do NOT penalise articles for statements inside quotes. Judge the editorial framing only.
 # 3. IRONY / SARCASM / SATIRE: Actively detect whether a text is ironic, sarcastic or satirical. Markers: exaggerated phrasing that undermines itself; ostentatiously naive questions as a device; overstatement that invites the reader to a meta level rather than commanding outrage. If a text recognisably works with irony or satire, the emotional charge is deliberately artistic, not manipulative — discount the score accordingly. An obviously satirical text cannot simultaneously manipulate dishonestly.
+# 4. MEASUREMENTS: The input may contain a "MEASUREMENTS" block with metrics computed deterministically from the text (word-list hits, densities, overlaps). Use them as objective additional evidence for your signal decisions and name the relevant values in the reasoning — they complement your text analysis, they do not replace it.
 #
 # Judge solely on the basis of the given text. Return your answer EXCLUSIVELY as valid JSON — no explanatory text around it."""
 #
 # SUB_SCORE_USER = """TITLE: {title}
 #
-# TEXT: {content}"""
+# TEXT: {content}
+#
+# MEASUREMENTS (computed deterministically from the text):
+# {metrics}"""
 #
 #
 # # 1. Curiosity Gap   (Blom & Hansen 2015)
@@ -1512,6 +1701,10 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # High scores require concrete, nameable evidence.
 # 5. SOURCE CRITICISM: Weigh the reliability of the evidence. A weak, partisan or off-topic source \
 # is not strong evidence — when in doubt, lean towards NEI.
+# 6. MEASUREMENTS: The input may contain a "MEASUREMENTS" block with metrics computed \
+# deterministically from the text (word-list hits, densities, evidence coverage). Use them as \
+# objective additional evidence for your marker decisions and name the relevant values in the \
+# reasoning — they complement your analysis, they do not replace it.
 #
 # Respond EXCLUSIVELY as valid JSON, with no explanatory text around it.
 #
@@ -1526,12 +1719,18 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # {content}
 #
 # EXTERNAL EVIDENCE (from fact-check databases and web search):
-# {evidence}"""
+# {evidence}
+#
+# MEASUREMENTS (computed deterministically):
+# {metrics}"""
 #
 # FC_CLOSED_USER = """TITLE: {title}
 #
 # ARTICLE:
-# {content}"""
+# {content}
+#
+# MEASUREMENTS (computed deterministically from the text):
+# {metrics}"""
 #
 #
 # # 1. Factual Accuracy — open-book, FEVER (Thorne et al. 2018)
@@ -1563,22 +1762,60 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # MISLEADING_FRAMING_SYSTEM = FC_SYSTEM_PREAMBLE + """
 #
 # TASK — MISLEADING FRAMING (0–10):
-# Basis: Entman (1993) — framing through selection and emphasis.
+# Basis: Entman (1993) — framing through selection and salience: problem definition, \
+# causal attribution, moral evaluation, treatment recommendation.
 # CORE QUESTION: Does the editorial framing (headline, selection, emphasis, word choice, order) \
 # push an interpretation that goes BEYOND what the reported facts support?
 #
-# PROCEDURE (document in the reasoning):
-# 1. What are the bare facts of the article?
-# 2. Which interpretation does the framing suggest (headline, what is emphasised/omitted, which word choice)?
-# 3. Is there a gap between the facts and the suggested interpretation?
-#    No gap (framing matches the facts)                  → 0–2
-#    Mild sharpening, core stays correct                 → 3–5
-#    Clear distortion of the interpretation              → 6–8
-#    Framing carries a thesis the facts do not support   → 9–10
-# QUOTES: Judge the editorial framing, not quoted statements by third parties.
+# ANALYSIS STEP — checklist (rate every marker Y/N, document in the reasoning):
+# 0. NEUTRAL BASELINE: How would a wire-service report title and structure the same facts? \
+# Does the framing at hand deviate only in style — or in interpretation?
+# A) THESIS SURPLUS: Does the headline/lead assert or suggest a thesis that the factual body \
+# of the article does not support?
+# B) VALUE-LADEN WORDING: Does the editorial voice (outside quotes) use judgmental or \
+# moralising terms without a factual anchor ("scandal", "debacle", "brazen", "dubious")?
+# C) ONE-SIDED SALIENCE: Are interpretation-relevant facts that contradict the suggested \
+# reading omitted, shortened or pushed to the end, while supporting facts sit prominently?
+# D) UNSUPPORTED ATTRIBUTION: Does the framing assign blame, cause or intent ("because of", \
+# "failed", "wanted to prevent") without the text substantiating causality or intent?
 #
-# OUTPUT FORMAT:
-# {"score": <float 0-10>, "reasoning": "<facts vs. suggested interpretation, concrete text evidence in ""> → <2–3 sentences: where the distortion lies and which interpretation it suggests>"}"""
+# SCORE LOGIC:
+#   0 markers active → 0–2  (framing matches the facts)
+#   1 marker         → 3–4
+#   2 markers        → 5–6
+#   3 markers        → 7–8
+#   4 markers        → 9–10
+#   Clearly declared opinion/column with a factual basis → max. 4 \
+# (a declared stance is not covert misleading)
+#   Framing stems from correctly attributed quotes → affected marker N \
+# (the editors merely document)
+#
+# IMPORTANT: Use the whole scale. An article whose framing simply renders the facts belongs \
+# at 0–2 — not in the middle. Every marker Y requires a concrete text quote in ""; if you \
+# cannot find one, the marker is N.
+#
+# EXAMPLES:
+#
+# [Score ~1 — framing matches the facts]
+# Title: "National Council rejects initiative by 120 votes to 68"
+# Text: "The National Council rejected the initiative on Tuesday by 120 votes to 68. \
+# Supporters announced they would consider a referendum."
+# → {"score": 1.0, "reasoning": "Baseline: a wire service would title this almost identically. A=N (title = fact), B=N (no value judgements), C=N (both camps present), D=N. 0 markers. → The framing renders the vote result soberly; selection and emphasis follow the facts and both sides are represented."}
+#
+# [Score ~5 — sharpened interpretation, core stays correct]
+# Title: "Authority looked on for years: contaminated drinking water in two municipalities"
+# Text: "Readings have exceeded the limit since 2019. The authority points to ongoing \
+# investigations and new filters from 2025."
+# → {"score": 5.0, "reasoning": "Baseline: wire title would be 'Drinking-water limit exceedances since 2019'. A=Y ('looked on for years' implies inaction, the text cites ongoing investigations), B=N, C=N (authority's position included), D=Y ('looked on' = blame attribution, inaction not substantiated). 2 markers. → The headline reinterprets documented limit exceedances as official inaction that the text does not substantiate. The factual core is right and the counter-position present — the distortion lies solely in the sharpened blame framing."}
+#
+# [Score ~9 — framing carries an unsupported thesis]
+# Title: "Secret plan against local business? City wants to scrap parking spots"
+# Text: "The city plans to remove 40 of the 2,200 parking spots in the city centre. \
+# One shop owner fears revenue losses."
+# → {"score": 9.0, "reasoning": "Baseline: wire title would be 'City removes 40 parking spots'. A=Y ('Secret plan against local business?' — the text substantiates neither secrecy nor intent against businesses), B=Y ('secret plan' moralising without factual anchor), C=Y (40 of 2,200 = under 2 percent is never contextualised), D=Y (implied intent 'against business' unsupported). 4 markers. → The framing turns a marginal traffic measure into a targeted attack on local business. Conspiracy vocabulary and missing context carry a thesis the reported facts do not support."}
+#
+# OUTPUT FORMAT — reasoning contains baseline + marker trace + summary:
+# {"score": <float 0-10>, "reasoning": "<Baseline: [wire framing would be ...]. A=Y/N, B=Y/N, C=Y/N, D=Y/N — every Y with a text quote. N markers. → 2–3 sentences: where the distortion lies and which interpretation it suggests>"}"""
 #
 #
 # # 3. Missing Context — closed-book, Rogers et al. (2017), paltering
@@ -1589,19 +1826,56 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # CORE QUESTION: Does the article lack context a reader NEEDS, such that technically correct \
 # statements leave a misleading overall impression?
 #
-# PROCEDURE (document in the reasoning):
-# 1. Which impression sticks after reading?
-# 2. Which known, relevant context (comparison figures, prior history, opposing position, \
-# classification) is missing that would change this impression?
-# 3. Score:
-#    Fully contextualised                                  → 0–2
-#    Minor omission, impression barely distorted           → 3–5
-#    Important context missing, impression clearly distorted → 6–8
-#    Central classification missing, statement becomes misleading → 9–10
-# Do not demand context that is unknown or unreasonable. Judge omission, not brevity alone.
+# ANALYSIS STEP — checklist (rate every marker Y/N, document in the reasoning):
+# 0. NEUTRAL BASELINE: Note 2–3 pieces of context a reader minimally needs to weigh the core \
+# statement (comparison figure, prior history, the other side). Then check which of them the \
+# text actually delivers.
+# A) NUMBER WITHOUT BASE: Does a central figure/percentage stand without a comparison figure, \
+# base rate or time series, so its magnitude cannot be assessed?
+# B) MISSING OTHER SIDE: Is the statement of the criticised/affected party missing although it \
+# would plausibly be obtainable — or does it appear only pro forma in the last paragraph?
+# C) MISSING PRIOR HISTORY: Is known prior history or classification missing without which the \
+# event appears different (bigger, smaller, more novel) than it is?
+# D) TRUE-BUT-MISLEADING: Does an overall impression stick that the nameable missing context \
+# would clearly correct? (The core of paltering.)
 #
-# OUTPUT FORMAT:
-# {"score": <float 0-10>, "reasoning": "<which context is missing> → <2–3 sentences: the missing context and its effect on the impression>"}"""
+# STRICT EVIDENCE DUTY: A marker is only Y if you can name the missing context CONCRETELY \
+# (which comparison figure, which prior history, whose statement). \
+# "More classification would be desirable" without nameable content = N.
+#
+# SCORE LOGIC:
+#   0 markers active → 0–2  (fully contextualised)
+#   1 marker         → 3–4
+#   2 markers        → 5–6
+#   3 markers        → 7–8
+#   4 markers        → 9–10
+#   Wire-service brief without sharpened interpretation → max. 3 (brevity alone is no omission)
+#   Context unknown or unreasonable at publication time → marker N
+#
+# IMPORTANT: Use the whole scale. An article that properly contextualises its core statement \
+# belongs at 0–2 — not in the middle.
+#
+# EXAMPLES:
+#
+# [Score ~1 — fully contextualised]
+# Title: "Unemployment rate rises to 2.4 percent in June"
+# Text: "The rate rose from 2.3 to 2.4 percent, the SECO reports. Seasonally adjusted it \
+# remains stable. In the same month last year it stood at 2.0 percent."
+# → {"score": 1.0, "reasoning": "Baseline needed: previous month, previous year, seasonal effect — all three delivered. A=N (comparison figures present), B=N (no criticised party), C=N, D=N. 0 markers. → The figure is fully contextualised: previous month, previous year and seasonal adjustment are in the text. No skewed overall impression remains."}
+#
+# [Score ~5 — nameable gaps, core statement still holds]
+# Title: "Record: 12,000 asylum applications in the first half-year"
+# Text: "The SEM reports 12,000 applications for the first half-year. We are monitoring the \
+# situation, a spokesperson says at the end of the article. The text names no previous-year figures."
+# → {"score": 5.0, "reasoning": "Baseline needed: time series (record since when?), previous-year comparison, European classification. A=Y ('record' and '12,000' without any time series — the record cannot be verified), B=N (SEM gets a say, albeit late), C=Y (earlier peaks and previous-year figure missing), D=N (the core statement would stand even with context). 2 markers. → To assess the 'record', the time series and previous-year figure are missing — the magnitude remains unassessable for the reader. The overall impression is amplified but not fundamentally falsified."}
+#
+# [Score ~9 — true figures, misleading overall impression]
+# Title: "Crime explodes: 40 percent more offences on the high street"
+# Text: "Offences rose from 10 to 14 per month within a year. Residents express concern."
+# → {"score": 9.0, "reasoning": "Baseline needed: absolute base, longer time series, classification by police/city. A=Y ('40 percent more' as the lead — the absolute base of 4 additional offences per month is never contextualised), B=Y (no statement from police or city), C=Y (single-year comparison without a longer series — an outlier cannot be excluded), D=Y (impression of 'exploding crime' that the tiny base would clearly correct). 4 markers. → True figures create a false overall impression: 'explodes' stands for 4 additional offences per month on a minimal base. Without absolute framing, a longer time series and the authorities' view, a massively overdrawn threat picture sticks."}
+#
+# OUTPUT FORMAT — reasoning contains baseline + marker trace + summary:
+# {"score": <float 0-10>, "reasoning": "<Baseline: [needed context points ...]. A=Y/N, B=Y/N, C=Y/N, D=Y/N — every Y with the concretely named missing context. N markers. → 2–3 sentences: the missing context and its effect on the impression>"}"""
 #
 #
 # # Judge — pick the single most illustrative candidate to fact-check (1 call)
@@ -1660,6 +1934,99 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 #
 #
 # # ══════════════════════════════════════════════════════════════════════════
+# # 2b. HARD-METRIC LEXICONS  (deterministic text metrics — src/analysis)
+# # ══════════════════════════════════════════════════════════════════════════
+# # Matched case-insensitively on word boundaries by src/analysis/hard_metrics.py
+# # and rendered into the MEASUREMENTS prompt block. English equivalents for
+# # forks that score English-language sources.
+#
+# # Editorial emotive/evaluative vocabulary (Potthast et al. 2016)
+# HM_EMOTIVE_WORDS = [
+#     "scandal", "scandalous", "shock", "shocking", "shocked", "dramatic",
+#     "drama", "outrage", "outrageous", "outraged", "fury", "furious", "uproar",
+#     "debacle", "disaster", "fiasco", "catastrophic", "unbelievable",
+#     "incredible", "brazen", "explosive", "alarming", "harrowing", "horrified",
+#     "chaos", "horror", "nightmare", "escalates", "escalation", "stir",
+#     "bombshell", "insane", "absurd", "juicy", "massive", "explodes", "exploding",
+# ]
+#
+# # Moral-emotional vocabulary, harm + fairness clusters (Brady et al. 2017)
+# HM_MORAL_WORDS = [
+#     "victim", "suffers", "suffering", "injured", "abused", "defenceless",
+#     "helpless", "innocent", "cruel", "tormented", "abuse", "unjust",
+#     "unfair", "failure", "failed", "blame", "guilty", "irresponsible",
+#     "betrayed", "deceived", "ruthless", "reckless", "unpunished",
+# ]
+#
+# # Forward-reference headline patterns (Blom & Hansen 2015) — regex, title only
+# HM_FORWARD_REFERENCE_PATTERNS = [
+#     r"^(this|these)\b",
+#     r"^here's why\b", r"^that's why\b", r"^how\b",
+#     r"\bthe reason behind\b", r"\bwhat's behind\b", r"\bthis is what\b",
+#     r"\bwhat happened next\b", r"\bfor this reason\b",
+#     r"\byou won't believe\b", r"…\s*$",
+# ]
+#
+# # Engagement-farming / conflict-staging markers (Rony et al. 2017)
+# HM_ENGAGEMENT_PATTERNS = [
+#     "what do you think", "let us know", "tell us", "have your say",
+#     "are you", "vote now", "cast your vote", "divided", "splits",
+#     "sparks debate", "opinions differ",
+# ]
+#
+# # Source-attribution markers — who gets to speak? (Rogers et al. 2017)
+# HM_ATTRIBUTION_PATTERNS = [
+#     "according to", "per", "said", "says", "stated", "states",
+#     "announced", "announces", "confirmed", "confirms", "reports",
+#     "writes", "it is said", "officials say",
+# ]
+#
+# # Comparison anchors that contextualise numbers (Rogers et al. 2017)
+# HM_COMPARISON_ANCHORS = [
+#     "previous year", "last year", "previous month", "compared to",
+#     "compared with", "before", "on average", "average", "per capita",
+#     "per resident", "in total", "out of a total", "seasonally adjusted",
+#     "long-term",
+# ]
+#
+# # Counter-position markers — the other side gets a voice (Entman 1993)
+# HM_COUNTERPOSITION_MARKERS = [
+#     "however", "by contrast", "contradicts", "contradicted", "denies",
+#     "denied", "criticises", "criticizes", "puts into perspective",
+#     "on the other hand", "defends itself", "counters", "defends",
+#     "rejects", "rejected", "statement",
+# ]
+#
+# # MEASUREMENTS block rendering — dict order here = display order in the prompt
+# HM_YES = "yes"
+# HM_NO = "no"
+# HM_LABELS = {
+#     "title_is_question":            "Title is a question",
+#     "title_exclamations":           "Exclamation marks in title",
+#     "title_forward_reference_hits": "Forward-reference patterns in title",
+#     "headline_body_overlap_pct":    "Title/opening overlap (%)",
+#     "engagement_marker_hits":       "Engagement markers",
+#     "editorial_emotive_hits":       "Editorial emotive words",
+#     "emotive_per_1000_words":       "Emotive words per 1000 words",
+#     "moral_word_hits":              "Moral vocabulary",
+#     "moral_per_1000_words":         "Moral vocabulary per 1000 words",
+#     "number_tokens":                "Numbers in text",
+#     "percent_tokens":               "Percentage figures",
+#     "comparison_anchor_hits":       "Comparison anchors",
+#     "attribution_hits":             "Source-attribution markers",
+#     "counterposition_hits":         "Counter-position markers",
+#     "quote_share_pct":              "Quote share (%)",
+#     "word_count":                   "Word count",
+#     "claims_total":                 "Claims checked",
+#     "claims_with_factcheck_hits":   "Claims with fact-check hits",
+#     "claims_with_web_evidence":     "Claims with web evidence",
+#     "claims_without_evidence":      "Claims without evidence",
+#     "evidence_sources_total":       "Evidence sources total",
+#     "mean_web_relevance":           "Mean web relevance",
+# }
+#
+#
+# # ══════════════════════════════════════════════════════════════════════════
 # # 3. FRONTEND TEXT
 # # ══════════════════════════════════════════════════════════════════════════
 #
@@ -1693,8 +2060,8 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # UI_WORD_SUFFIX          = "w"
 #
 # UI_RB_SECTION_LABEL = (
-#     "Highest ragebait score in the latest batch &nbsp;·&nbsp; "
-#     "{total} articles screened ({time})"
+#     "Highest ragebait score &nbsp;·&nbsp; "
+#     "latest: {total} articles screened ({time})"
 #     "&nbsp;·&nbsp; updated hourly"
 # )
 # UI_RB_SECTION_LABEL_EMPTY = "Highest ragebait score"
@@ -1728,7 +2095,7 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 # )
 #
 # UI_RB_EMPTY_STATE = (
-#     "No notable ragebait in the latest run.<br>"
+#     "No notable ragebait identified yet.<br>"
 #     '<span style="font-size:0.78rem;">The analysed articles mostly reported factually — '
 #     "check back later, the dashboard updates hourly.</span>"
 # )

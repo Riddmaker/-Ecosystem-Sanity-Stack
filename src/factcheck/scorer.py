@@ -19,6 +19,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
+from src.analysis.hard_metrics import (
+    evidence_metrics,
+    factcheck_metrics,
+    render_metrics_block,
+)
 from src.scoring.llm_client import MistralJSONClient, RANDOM_SEED, TEMPERATURE
 from src.scoring.throttle import large_limiter
 from src.factcheck.schemas import FactCheckScore, FactCheckResult
@@ -37,7 +42,7 @@ from src.strings import (
 log = logging.getLogger(__name__)
 
 FC_SCORE_MODEL_ID = "mistral-large-latest"
-FC_SCORE_VERSION  = "fc-v1"
+FC_SCORE_VERSION  = "fc-v2"   # v2: anchored marker rubrics for the closed-book sub-scores
 MAX_CONTENT_CHARS = 3000
 _VALID_LABELS     = {"SUPPORTED", "REFUTED", "NEI"}
 
@@ -118,10 +123,20 @@ class FactCheckScorer:
         content_trunc = content[:MAX_CONTENT_CHARS]
         evidence_block = render_evidence(evidence)
 
+        # Deterministic signals over the exact text/evidence the model sees —
+        # injected as the MESSWERTE block and persisted alongside the verdict.
+        text_metrics = factcheck_metrics(title, content_trunc)
+        ev_metrics = evidence_metrics(claims, evidence)
+        closed_block = render_metrics_block(text_metrics)
+        accuracy_block = render_metrics_block({**text_metrics, **ev_metrics})
+
         tasks = {
-            "factual_accuracy":  lambda: self._score_accuracy(title, content_trunc, evidence_block),
-            "misleading_framing": lambda: self._score_closed(MISLEADING_FRAMING_SYSTEM, title, content_trunc),
-            "missing_context":   lambda: self._score_closed(MISSING_CONTEXT_SYSTEM, title, content_trunc),
+            "factual_accuracy":  lambda: self._score_accuracy(
+                title, content_trunc, evidence_block, accuracy_block),
+            "misleading_framing": lambda: self._score_closed(
+                MISLEADING_FRAMING_SYSTEM, title, content_trunc, closed_block),
+            "missing_context":   lambda: self._score_closed(
+                MISSING_CONTEXT_SYSTEM, title, content_trunc, closed_block),
         }
         results: dict[str, dict] = {}
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -165,6 +180,7 @@ class FactCheckScorer:
             claims=claims,
             evidence=evidence,
             reasoning=reasoning,
+            hard_metrics={"text": text_metrics, "evidence": ev_metrics},
         )
 
     def generate_reader_service(self, title: str, content: str, result: FactCheckResult) -> dict:
@@ -194,8 +210,12 @@ class FactCheckScorer:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _score_accuracy(self, title: str, content: str, evidence_block: str) -> dict:
-        user_msg = FC_ACCURACY_USER.format(title=title, content=content, evidence=evidence_block)
+    def _score_accuracy(
+        self, title: str, content: str, evidence_block: str, metrics_block: str
+    ) -> dict:
+        user_msg = FC_ACCURACY_USER.format(
+            title=title, content=content, evidence=evidence_block, metrics=metrics_block
+        )
         raw = self._query(FACTUAL_ACCURACY_SYSTEM, user_msg)
         label = str(raw.get("label", "NEI")).upper().strip()
         if label not in _VALID_LABELS:
@@ -203,8 +223,10 @@ class FactCheckScorer:
         score = 0.0 if label == "NEI" else _clamp(raw.get("score", 0))
         return {"label": label, "score": score, "reasoning": _as_text(raw.get("reasoning", ""))}
 
-    def _score_closed(self, system: str, title: str, content: str) -> dict:
-        user_msg = FC_CLOSED_USER.format(title=title, content=content)
+    def _score_closed(
+        self, system: str, title: str, content: str, metrics_block: str
+    ) -> dict:
+        user_msg = FC_CLOSED_USER.format(title=title, content=content, metrics=metrics_block)
         raw = self._query(system, user_msg)
         return {"score": _clamp(raw.get("score", 0)), "reasoning": _as_text(raw.get("reasoning", ""))}
 
@@ -252,6 +274,7 @@ def fact_check_to_db_fields(result: FactCheckResult, judge_reasoning: str = "") 
             "claims":   result.claims,
             "evidence": result.evidence,
             "judge_reasoning": judge_reasoning,
+            "hard_metrics": result.hard_metrics,
             "temperature": TEMPERATURE,
             "random_seed": RANDOM_SEED,
         },

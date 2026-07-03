@@ -4,16 +4,25 @@ Guidance for AI agents (Claude Code) working in this repository. See `README.md`
 the full project description, research basis, and deployment guide.
 
 <coding_conventions>
-- HABIT 1: [Security First] Never hardcode sensitive credentials or API keys; always use environment variables. Actively avoid reading, echoing, or printing raw secret values into the terminal or chat context to prevent them from leaking into the LLM context window.
+
+- HABIT 1: [Security First] Never hardcode sensitive credentials or API keys; always use environment variables. Actively avoid reading, echoing, or printing raw secret values into the terminal or chat context to prevent them from leaking into the LLM context window. If necessary, write small execution scripts around .env files to keep secrets isolated.
+
 - HABIT 2: [Agentic Initiative] When fixing errors, analyze the terminal output directly using CLI commands rather than asking the user to copy-paste logs.
-- HABIT 3: [Plan First] Before executing any complex task, you must draft a clear, step-by-step execution plan based on existing documentation. Lay it out for yourself and the user, and wait for explicit approval before writing code.
-- HABIT 4: [Library Integrity] When working with external libraries, never guess the syntax. You must first consult the official documentation or the local source code (via the venv or internet tools) to ensure the library, with the version we use in the code-bse, is applied correctly semantically and synthactically.
-- HABIT 5: [Documentation & Context Maintenance] Keep the repository's documentation, template files (like .env.example or config.sample.json), and AI context files (like claude.md or memory logs) up-to-date with code changes. Ensure AI memory and instruction files are maintained where necessary and appropriate for their specific purposes. Ensure example configurations always reflect the actual required keys and structure of the working environment without ever containing real secrets. Ensure zero contradictions between the code, docs, and AI context. If contradictions arise, highlight them, decide on the best path, or discuss them with the user.
-- HABIT 6: [Step-by-Step Reasoning] Before performing any architectural change or fix, layout a logical reasoning process. Think through edge cases step-by-step before executing commands.
-- HABIT 7: [Meta-Optimization] Continuously evaluate our interactions. If you notice repetitive manual tasks, recurring boilerplate generation, or identical shell commands being executed across multiple turns, STOP and proactively suggest an automation. Advise the user if creating a new Skill, Hook, or Plugin from the Marketplace, or using a dedicated CLI or MCP, or using a Subagent would optimize the workflow, strictly following the "Lightest First" philosophy.
-- HABIT 8: [Standardized Quality] Always write code that adheres to established, language-specific style guides (e.g., PEP 8 for Python). Anticipate and prevent the warnings, errors, and hints that standard static analysis tools and linters (like Pylint or ESLint) would flag. Treat clean, idiomatic, and internally consistent syntax as a strict requirement, not an afterthought.
-- HABIT 9: [Secure by Design] Actively integrate fundamental cybersecurity principles into every layer of the application. Validate all inputs, sanitize outputs, and specifically guard against the OWASP Top 10 vulnerabilities (such as SQL Injection, Cross-Site Scripting (XSS), and Broken Access Control). Always apply the principle of least privilege when configuring permissions, databases, or APIs.
-- HABIT 10: [Verifiable Reliability] Ensure the application remains fully testable. For any significant new functionality, write corresponding automated tests and place them in a dedicated tests/ directory at the project root. Before any code is considered "complete" or ready for deployment, run the relevant test suites to verify that the new features work and that no existing functionality has been broken.
+
+- HABIT 3: [Plan & Reason First] Before executing complex tasks, fixes, or architectural changes, draft a step-by-step execution plan and lay out your logical reasoning. Think through edge cases explicitly, present the plan to the user, and wait for approval before writing code or executing commands.
+
+- HABIT 4: [Library Integrity] When working with external libraries, never guess the syntax. You must first consult the official documentation or the local source code (via the venv or internet tools) to ensure the library, with the version we use in the code-base, is applied correctly semantically and syntactically.
+
+- HABIT 5: [Documentation & Context Maintenance] Keep all docs, templates (.env.example), and AI context files (claude.md, memories) perfectly synced with code changes. Example configs must reflect actual required keys without containing real secrets. Resolve any contradictions between the code, docs, and AI context immediately, or discuss them with the user if necessary.
+
+- HABIT 6: [Meta-Optimization] Continuously evaluate our interactions. If you notice repetitive manual tasks, recurring boilerplate generation, or identical shell commands being executed across multiple turns, STOP and proactively suggest an automation. Advise the user if creating a new Skill, Hook, or Plugin from the Marketplace, or using a dedicated CLI or MCP, or using a Subagent would optimize the workflow, strictly following the "Lightest First" philosophy.
+
+- HABIT 7: [Standardized Quality] Always write code that adheres to established, language-specific style guides. Anticipate and prevent the warnings, errors, and hints that standard static analysis tools and linters (like Pylint or ESLint) would flag to ensure maximum maintainability.
+
+- HABIT 8: [Secure by Design] Actively integrate fundamental cybersecurity principles into the application. Validate inputs, sanitize outputs, and defend against the OWASP Top 10 vulnerabilities (e.g., Injection, XSS) while applying the principle of least privilege.
+
+- HABIT 9: [Verifiable Reliability] Maintain a dedicated tests/ directory at the project root. Write automated tests for significant new functionality and run the test suite to confirm everything works and no regressions are introduced before finalizing features.
+
 </coding_conventions>
 
 ## What this is
@@ -67,6 +76,11 @@ docker compose up -d            # db + frontend + scheduler
   Bot-protected sites extend `BasePlaywrightScraperConnector`.
 - `src/scoring/llm_client.py` — shared `MistralJSONClient` (key handling, JSON mode,
   temp=0.0/seed=42, rate limiting, 429 retry). `PreScorer`/`MediaScorer` are thin wrappers.
+- `src/analysis/hard_metrics.py` — deterministic, paper-grounded text metrics (no LLM):
+  computed over the exact text each Tier-2 call sees, injected into every sub-score prompt
+  as the `MESSWERTE` block and persisted under `score_details.hard_metrics` /
+  `fact_check_details.hard_metrics`. The word lists/labels live in `src/strings.py`
+  (language-specific — the English mirror carries English lists).
 - `src/db/` — `connection.py` (engine singleton + `init_db()`), `models.py` (ORM),
   `repository.py` (upsert + SHA-256 content dedup + query helpers).
 - `src/frontend/` — `app.py` (composition) · `data.py` (queries) · `components.py`
@@ -139,7 +153,10 @@ produces real verdicts (vs. NEI) when both keys are set. Open-book flow:
 - **3 Mistral-Large sub-scores, one call each** — `scorer.py`: Factual Accuracy (open-book, FEVER
   SUPPORTED/REFUTED/**NEI**) / Misleading Framing (Entman) / Missing Context (Rogers). Mean =
   `fact_check_score`. **NEI is excluded from the mean** so abstention never inflates the index;
-  never assert "lie" about a named outlet.
+  never assert "lie" about a named outlet. Since `fc-v2` the two closed-book sub-scores use
+  anchored J/N marker rubrics (count→band score logic + few-shots, mirroring the ragebait
+  prompts) plus the deterministic `MESSWERTE` block — fix for the "always ~7" central-tendency
+  artifact fc-v1 showed in prod (missing_context was 7.0 in 37/50 verdicts).
 - Frontend (`src/frontend/`): `st.tabs(["Ragebait Index","Faktencheck"])` + a "Was du sonst tun
   kannst" shout-out to the **Pino** fact-check extension. Config knobs in `config.py`
   (`FACTCHECK_*`), retrieval keys `GOOGLE_FACTCHECK_API_KEY` / `TAVILY_API_KEY` in `.env`.
