@@ -77,6 +77,13 @@ GOOGLE_FC_PAGE_SIZE = 5        # ClaimReview verdicts to pull per claim lookup
 TAVILY_TOPIC       = "news"    # bias toward news sources over the general web
 TAVILY_TIME_RANGE  = "month"   # recency window ("day"/"week"/"month"/"year" or "")
 TAVILY_MAX_RESULTS = 5         # ranked results per claim
+# Minimum Tavily relevance (0–1) for a web result to count as evidence. Tavily
+# always returns its best-effort top-N, even for a hyperlocal claim its index
+# can't match — a Swiss-German hedgehog claim once drew IPL cricket highlights at
+# ~0.02. That junk then reached both the scorer prompt and the "Belege" UI. Drop
+# anything below this floor; if it empties a claim's evidence, the scorer honestly
+# abstains to NEI. Genuine on-topic hits score well above this. Tunable.
+TAVILY_MIN_RELEVANCE = 0.30
 
 # ── Frontend ─────────────────────────────────────────────────────────
 # Window for "articles screened in the latest batch" stats; slightly

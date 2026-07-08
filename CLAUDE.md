@@ -150,13 +150,23 @@ produces real verdicts (vs. NEI) when both keys are set. Open-book flow:
   `pipeline.py`, throttled by `FACTCHECK_EVERY_N_RUNS` via the stateless `_factcheck_due` gate.
 - **Evidence:** Google Fact Check Tools API (free, 1st pass) then Tavily fallback — `retrieval.py`;
   **both guard on a missing key → `[]`**, so the ragebait track / local dev are never blocked.
+  Tavily always returns a best-effort top-N even for a hyperlocal claim its index can't match, so
+  `gather_claim_evidence` drops web hits below `config.TAVILY_MIN_RELEVANCE` (default `0.30`) — off-
+  topic noise (a Swiss hedgehog claim once drew IPL cricket at ~0.02) never reaches the scorer or the
+  "Belege" UI; an emptied bundle just makes accuracy abstain to NEI. The evidence card
+  (`components.render_factcheck_evidence`) only calls those sources "die Grundlage für das Urteil"
+  when some survived; with none it shows the honest no-evidence note.
 - **3 Mistral-Large sub-scores, one call each** — `scorer.py`: Factual Accuracy (open-book, FEVER
   SUPPORTED/REFUTED/**NEI**) / Misleading Framing (Entman) / Missing Context (Rogers). Mean =
   `fact_check_score`. **NEI is excluded from the mean** so abstention never inflates the index;
   never assert "lie" about a named outlet. Since `fc-v2` the two closed-book sub-scores use
   anchored J/N marker rubrics (count→band score logic + few-shots, mirroring the ragebait
   prompts) plus the deterministic `MESSWERTE` block — fix for the "always ~7" central-tendency
-  artifact fc-v1 showed in prod (missing_context was 7.0 in 37/50 verdicts).
+  artifact fc-v1 showed in prod (missing_context was 7.0 in 37/50 verdicts). `fc-v3` adds a
+  **reader-agency mitigator on Missing Context only** (constructive "how to help" / next-steps
+  sections = context delivered → the same agency the ragebait track credits; lexicon
+  `HM_AGENCY_MARKERS` in `strings.py`, surfaced in `MESSWERTE`), and raises `MAX_CONTENT_CHARS`
+  3000→4500 so the model actually reads those end-of-article solutions sections.
 - Frontend (`src/frontend/`): `st.tabs(["Ragebait Index","Faktencheck"])` + a "Was du sonst tun
   kannst" shout-out to the **Pino** fact-check extension. Config knobs in `config.py`
   (`FACTCHECK_*`), retrieval keys `GOOGLE_FACTCHECK_API_KEY` / `TAVILY_API_KEY` in `.env`.

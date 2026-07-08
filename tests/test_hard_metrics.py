@@ -78,6 +78,20 @@ def test_factcheck_metrics_flag_naked_numbers():
     assert metrics["percent_tokens"] == 1
     assert metrics["comparison_anchor_hits"] == []           # no baseline anchor
     assert metrics["counterposition_hits"] == []              # nobody else speaks
+    assert metrics["agency_marker_hits"] == []                # no "what you can do"
+
+
+def test_factcheck_metrics_detect_reader_agency():
+    text = (
+        "Im Mittelland wurden dieses Jahr 116 Jungigel aufgenommen, im Vorjahr 49. "
+        "Was du tun kannst: Kontaktiere eine lokale Igelstation und informiere dich "
+        "über igelfreundliche Gärten."
+    )
+    metrics = hm.factcheck_metrics("Igel in Not", text)
+    assert "was du tun kannst" in metrics["agency_marker_hits"]
+    assert "kontaktiere" in metrics["agency_marker_hits"]
+    # surfaces in the MESSWERTE block the missing-context prompt reads
+    assert "Handlungsangebot-Marker" in hm.render_metrics_block(metrics)
 
 
 # ── evidence metrics ─────────────────────────────────────────────────────────

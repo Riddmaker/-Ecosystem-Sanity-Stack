@@ -187,6 +187,11 @@ def gather_claim_evidence(
         web: list[WebEvidence] = []
         if not reviews:
             web = tavily.search(claim, exclude_domains=exclude_domains)
+            # Drop off-topic noise: Tavily returns a best-effort top-N even when
+            # nothing in its index matches, so a hyperlocal claim can come back
+            # with near-zero-relevance junk. Below the floor it isn't evidence —
+            # an empty bundle makes the scorer abstain to NEI (the honest outcome).
+            web = [w for w in web if w.score >= config.TAVILY_MIN_RELEVANCE]
         bundles.append({
             "claim":        claim,
             "fact_checks":  [r.model_dump() for r in reviews],

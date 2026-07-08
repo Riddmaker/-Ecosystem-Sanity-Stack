@@ -23,6 +23,7 @@ mirror carries English equivalents), so a language switch swaps them too.
 import re
 
 from src.strings import (
+    HM_AGENCY_MARKERS,
     HM_ATTRIBUTION_PATTERNS,
     HM_COMPARISON_ANCHORS,
     HM_COUNTERPOSITION_MARKERS,
@@ -142,6 +143,8 @@ def factcheck_metrics(title: str, content: str) -> dict:
         "comparison_anchor_hits": _word_hits(content, HM_COMPARISON_ANCHORS),
         "attribution_hits": attribution,
         "counterposition_hits": _word_hits(content, HM_COUNTERPOSITION_MARKERS),
+        # Solutions/agency section → context delivered; mitigates Missing Context.
+        "agency_marker_hits": _word_hits(content, HM_AGENCY_MARKERS),
         "quote_share_pct": quote_share_pct(content),
         "word_count": len(_WORD.findall(content or "")),
     }

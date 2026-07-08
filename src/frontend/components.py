@@ -430,11 +430,13 @@ def render_factcheck_evidence(fc: dict) -> str:
             f'<div style="margin-bottom:0.4rem;">{claim}</div>{src_html}</div>'
         )
 
-    intro = (
-        f'<div class="reader-service-cell" style="grid-column:1/-1;border-right:none;'
-        f'font-size:var(--fs-meta);color:{T3};line-height:1.6;">'
-        f'{strings.UI_FC_EVIDENCE_INTRO.format(t2=T2)}</div>'
-    )
+    # Only claim these sources are "the basis for the verdict" when we actually
+    # kept some. With no surviving evidence the note below carries the honest
+    # explanation instead — never present rejected/empty evidence as the basis.
+    intro = ("" if not any_evidence else
+             f'<div class="reader-service-cell" style="grid-column:1/-1;border-right:none;'
+             f'font-size:var(--fs-meta);color:{T3};line-height:1.6;">'
+             f'{strings.UI_FC_EVIDENCE_INTRO.format(t2=T2)}</div>')
 
     note = ("" if any_evidence else
             f'<div class="reader-service-cell" style="grid-column:1/-1;border-right:none;'

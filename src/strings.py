@@ -679,6 +679,11 @@ SCORE-LOGIK:
   4 Marker         → 9–10
   Agentur-Kurzmeldung ohne zuspitzende Deutung → max. 3 (Kürze allein ist keine Auslassung)
   Kontext, der zum Publikationszeitpunkt unbekannt oder unzumutbar war → Marker N
+  HANDLUNGSANGEBOT (Mitigator): Liefert der Artikel eine echte, umsetzbare Lösungs-/\
+Handlungssektion — konkrete nächste Schritte oder benannte Anlaufstellen (vgl. MESSWERTE \
+«Handlungsangebot-Marker») —, erhält die Leserin gelieferten Kontext und Handlungsfähigkeit: \
+Marker D dann eher N, und im Zweifel eine Bandstufe tiefer. Ein blosser Betroffenheits-Appell \
+ohne konkrete Handlung zählt NICHT.
 
 WICHTIG: Nutze die ganze Skala. Ein Artikel, der seine Kernaussage sauber einordnet, gehört \
 auf 0–2 — nicht ins Mittelfeld.
@@ -829,6 +834,21 @@ HM_COUNTERPOSITION_MARKERS = [
     "stellungnahme",
 ]
 
+# Reader-agency / solutions markers — does the article hand the reader concrete,
+# actionable next steps (constructive journalism)? A genuine "what you can do"
+# section is context DELIVERED, so it mitigates Missing Context (Rogers) — the
+# same agency the ragebait track already credits, mirrored into the fact-check side.
+HM_AGENCY_MARKERS = [
+    # Impersonal Swiss-German forms lead a real "how to help" section far more
+    # often than direct address ("Was jede und jeder tun kann:", "was man tun kann").
+    "tun kann", "tun können", "tun könnt", "helfen kann", "helfen können",
+    "das kannst du tun", "was du tun kannst", "was sie tun können",
+    "so hilfst du", "so helfen sie", "so kannst du helfen", "so können sie helfen",
+    "wende dich an", "wenden sie sich an", "kontaktiere", "kontaktieren sie",
+    "informiere dich", "informieren sie sich", "achte darauf", "achten sie darauf",
+    "findet man unter", "infos findet man", "mehr informationen unter",
+]
+
 # MESSWERTE block rendering — dict order here = display order in the prompt
 HM_YES = "ja"
 HM_NO = "nein"
@@ -847,6 +867,7 @@ HM_LABELS = {
     "comparison_anchor_hits":       "Vergleichsanker",
     "attribution_hits":             "Quellen-Attributionsmarker",
     "counterposition_hits":         "Gegenposition-Marker",
+    "agency_marker_hits":           "Handlungsangebot-Marker",
     "quote_share_pct":              "Zitatanteil (%)",
     "word_count":                   "Wortzahl",
     "claims_total":                 "Geprüfte Behauptungen",
@@ -1851,6 +1872,11 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 #   4 markers        → 9–10
 #   Wire-service brief without sharpened interpretation → max. 3 (brevity alone is no omission)
 #   Context unknown or unreasonable at publication time → marker N
+#   READER AGENCY (mitigator): If the article delivers a genuine, actionable \
+# solutions/next-steps section — concrete next steps or named points of contact (cf. \
+# MEASUREMENTS "Reader-agency markers") —, the reader gains delivered context and agency: \
+# marker D then rather N, and one band lower in case of doubt. A mere appeal to concern \
+# without concrete action does NOT count.
 #
 # IMPORTANT: Use the whole scale. An article that properly contextualises its core statement \
 # belongs at 0–2 — not in the middle.
@@ -1997,6 +2023,17 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 #     "rejects", "rejected", "statement",
 # ]
 #
+# # Reader-agency / solutions markers — does the article hand the reader concrete,
+# # actionable next steps (constructive journalism)? A genuine "what you can do"
+# # section is context DELIVERED, so it mitigates Missing Context (Rogers) — the
+# # same agency the ragebait track already credits, mirrored into the fact-check side.
+# HM_AGENCY_MARKERS = [
+#     "you can do", "what you can do", "here's what you can do", "what one can do",
+#     "how you can help", "how to help", "you can help", "here's how to help",
+#     "get in touch", "reach out to", "contact", "find out more", "more information at",
+#     "look out for", "watch out for", "report it",
+# ]
+#
 # # MEASUREMENTS block rendering — dict order here = display order in the prompt
 # HM_YES = "yes"
 # HM_NO = "no"
@@ -2015,6 +2052,7 @@ FACTCHECK_RESEARCH_FOOTER_HTML = """
 #     "comparison_anchor_hits":       "Comparison anchors",
 #     "attribution_hits":             "Source-attribution markers",
 #     "counterposition_hits":         "Counter-position markers",
+#     "agency_marker_hits":           "Reader-agency markers",
 #     "quote_share_pct":              "Quote share (%)",
 #     "word_count":                   "Word count",
 #     "claims_total":                 "Claims checked",

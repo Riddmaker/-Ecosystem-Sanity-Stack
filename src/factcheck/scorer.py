@@ -42,8 +42,13 @@ from src.strings import (
 log = logging.getLogger(__name__)
 
 FC_SCORE_MODEL_ID = "mistral-large-latest"
-FC_SCORE_VERSION  = "fc-v2"   # v2: anchored marker rubrics for the closed-book sub-scores
-MAX_CONTENT_CHARS = 3000
+FC_SCORE_VERSION  = "fc-v3"   # v3: reader-agency mitigator on Missing Context + Tavily relevance gate
+# Constructive "how to help" / next-steps sections sit at the article end. At
+# 3000 they fell past the window, so Missing Context penalised context the article
+# actually delivered (and the agency mitigator never saw it). 4500 captures the
+# tail of a typical Swiss news article; the fact-check track is winner-only, so the
+# extra input tokens are negligible.
+MAX_CONTENT_CHARS = 4500
 _VALID_LABELS     = {"SUPPORTED", "REFUTED", "NEI"}
 
 
