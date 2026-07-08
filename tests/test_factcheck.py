@@ -153,6 +153,50 @@ def _boom(*_a, **_k):  # pragma: no cover - only called if a guard fails
     raise AssertionError("network call made despite missing API key")
 
 
+# ── Relevance gate (gather_claim_evidence) ────────────────────────────────────
+
+class _FakeFct:
+    """No fact-check hits → Tavily is always consulted."""
+    def search(self, claim):
+        return []
+
+
+class _FakeTavily:
+    def __init__(self, results):
+        self._results = results
+
+    def search(self, claim, exclude_domains=None):
+        return list(self._results)
+
+
+def test_gather_claim_evidence_drops_low_relevance_web(monkeypatch):
+    from src import config
+    from src.factcheck.retrieval import gather_claim_evidence
+    from src.factcheck.schemas import WebEvidence
+
+    monkeypatch.setattr(config, "TAVILY_MIN_RELEVANCE", 0.30)
+    web = [
+        WebEvidence(title="Relevant", url="u1", content="", score=0.55),
+        WebEvidence(title="Cricket junk", url="u2", content="", score=0.02),
+        WebEvidence(title="Boundary", url="u3", content="", score=0.30),
+    ]
+    bundles = gather_claim_evidence(["eine Behauptung"], _FakeFct(), _FakeTavily(web))
+    kept = [w["title"] for w in bundles[0]["web_evidence"]]
+    assert kept == ["Relevant", "Boundary"]   # junk dropped, floor kept
+
+
+def test_gather_claim_evidence_empty_when_all_below_floor(monkeypatch):
+    from src import config
+    from src.factcheck.retrieval import gather_claim_evidence
+    from src.factcheck.schemas import WebEvidence
+
+    monkeypatch.setattr(config, "TAVILY_MIN_RELEVANCE", 0.30)
+    web = [WebEvidence(title="junk", url="u", content="", score=0.05)]
+    bundles = gather_claim_evidence(["c"], _FakeFct(), _FakeTavily(web))
+    # All noise → no evidence → the scorer will abstain to NEI (the honest outcome).
+    assert bundles[0]["web_evidence"] == []
+
+
 # ── Evidence rendering ────────────────────────────────────────────────────────
 
 def test_render_evidence_empty():
